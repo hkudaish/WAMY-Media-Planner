@@ -1,0 +1,9 @@
+node_modules/
+.env
+dist/
+backups/
+restore-tmp/
+*.dump
+*.dump.enc
+npm-debug.log*
+*.log

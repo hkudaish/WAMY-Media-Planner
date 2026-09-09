@@ -1,0 +1,95 @@
+services:
+  postgres:
+    image: postgres:17-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: wamy_media
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Set POSTGRES_ADMIN_PASSWORD}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?Set APP_DB_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./ops/init-app-role.sh:/docker-entrypoint-initdb.d/10-app-role.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d wamy_media"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [backend]
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 5173
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN}
+      ALLOWED_ORIGINS: ${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN}
+      TRUST_PROXY: "1"
+      DATABASE_URL: postgresql://wamy_app:${APP_DB_PASSWORD}@postgres:5432/wamy_media
+      BOOTSTRAP_ADMIN_TOKEN: ${BOOTSTRAP_ADMIN_TOKEN:?Set BOOTSTRAP_ADMIN_TOKEN}
+      ALLOW_PUBLIC_SIGNUP: ${ALLOW_PUBLIC_SIGNUP:-false}
+      BACKUP_DIR: /backups
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY:?Set BACKUP_ENCRYPTION_KEY}
+    volumes:
+      - database-backups:/backups
+    ports:
+      - "127.0.0.1:5173:5173"
+    networks: [backend]
+
+  backup:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://wamy_app:${APP_DB_PASSWORD}@postgres:5432/wamy_media
+      BACKUP_DIR: /backups
+      BACKUP_COPY_DIR: /offsite
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-6}
+      BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY:?Set BACKUP_ENCRYPTION_KEY}
+      BACKUP_ALERT_WEBHOOK: ${BACKUP_ALERT_WEBHOOK:-}
+    volumes:
+      - database-backups:/backups
+      - ${OFFSITE_BACKUP_PATH:?Set OFFSITE_BACKUP_PATH}:/offsite
+    command: ["node", "scripts/backup-loop.js"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "const s=require('/backups/.backup-status.json');if(!s.ok||Date.now()-Date.parse(s.completed_at)>28800000)process.exit(1)"]
+      interval: 30m
+      timeout: 5s
+      retries: 2
+    networks: [backend, monitoring]
+
+  restore-test:
+    build: .
+    profiles: ["operations"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://wamy_app:${APP_DB_PASSWORD}@postgres:5432/wamy_media
+      RESTORE_ADMIN_URL: postgresql://postgres:${POSTGRES_ADMIN_PASSWORD}@postgres:5432/postgres
+      BACKUP_DIR: /backups
+      BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY:?Set BACKUP_ENCRYPTION_KEY}
+    volumes:
+      - database-backups:/backups:ro
+    command: ["node", "scripts/test-restore.js"]
+    networks: [backend]
+
+volumes:
+  postgres-data:
+  database-backups:
+
+networks:
+  backend:
+    internal: true
+  monitoring:
