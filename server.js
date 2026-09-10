@@ -20,6 +20,7 @@ const DATABASE_URL = process.env.DATABASE_URL;
 const PORT = Number(process.env.PORT || 5173);
 const HOST = process.env.HOST || '127.0.0.1';
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const PUBLIC_ORIGIN = process.env.PUBLIC_ORIGIN || `http://localhost:${PORT}`;
 const IS_HTTPS = PUBLIC_ORIGIN.startsWith('https://');
 const COOKIE_NAME = IS_HTTPS ? '__Host-wamy_session' : 'wamy_session';
 const SESSION_DAYS = 7;
@@ -27,7 +28,6 @@ const INVITATION_HOURS = Math.min(Math.max(Number(process.env.INVITATION_HOURS |
 const LOGIN_WINDOW_MINUTES = 15;
 const LOGIN_MAX_FAILURES = 5;
 const LOGIN_MAX_IP_FAILURES = 50;
-const PUBLIC_ORIGIN = process.env.PUBLIC_ORIGIN || `http://localhost:${PORT}`;
 const ALLOWED_ORIGINS = new Set([
   PUBLIC_ORIGIN,
   ...String(process.env.ALLOWED_ORIGINS || '').split(',').map(value => value.trim()).filter(Boolean),

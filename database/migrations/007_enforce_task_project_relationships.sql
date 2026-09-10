@@ -5,9 +5,12 @@ do $$
 declare default_proj_id uuid;
 begin
   select id into default_proj_id from projects where code='STR-COMM-01' or status in ('active','planning') order by code limit 1;
-  if default_proj_id is not null then
-    update tasks set project_id = default_proj_id where project_id is null;
+  if default_proj_id is null then
+    insert into projects (code, name, description, org, status)
+    values ('STR-COMM-01', 'عقد التواصل الاستراتيجي 2026-2027', 'المشروع الرئيسي لمتابعة الخطة الإعلامية', 'wamy', 'active')
+    returning id into default_proj_id;
   end if;
+  update tasks set project_id = default_proj_id where project_id is null;
 end $$;
 
 -- 2. Match plan_item_id for historical tasks where possible
