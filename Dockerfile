@@ -19,7 +19,8 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY server.js ./
 COPY database ./database
-COPY scripts/init-db.js scripts/backup-db.js scripts/backup-loop.js scripts/test-restore.js scripts/create-user.js ./scripts/
+COPY server ./server
+COPY scripts ./scripts
 RUN mkdir -p /backups && chown -R app:app /app /backups
 USER app
 EXPOSE 5173
