@@ -20,7 +20,8 @@ const DATABASE_URL = process.env.DATABASE_URL;
 const PORT = Number(process.env.PORT || 5173);
 const HOST = process.env.HOST || '127.0.0.1';
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
-const COOKIE_NAME = IS_PRODUCTION ? '__Host-wamy_session' : 'wamy_session';
+const IS_HTTPS = PUBLIC_ORIGIN.startsWith('https://');
+const COOKIE_NAME = IS_HTTPS ? '__Host-wamy_session' : 'wamy_session';
 const SESSION_DAYS = 7;
 const INVITATION_HOURS = Math.min(Math.max(Number(process.env.INVITATION_HOURS || 168), 1), 720);
 const LOGIN_WINDOW_MINUTES = 15;
@@ -57,8 +58,8 @@ if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
 }
 if (IS_PRODUCTION) {
   const database = new URL(DATABASE_URL);
-  if (!PUBLIC_ORIGIN.startsWith('https://')) {
-    console.error('PUBLIC_ORIGIN must use HTTPS in production.');
+  if (!PUBLIC_ORIGIN.startsWith('https://') && !/^https?:\/\/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/.test(PUBLIC_ORIGIN) && !PUBLIC_ORIGIN.startsWith('http://localhost') && !PUBLIC_ORIGIN.startsWith('http://127.0.0.1')) {
+    console.error('PUBLIC_ORIGIN must use HTTPS in production when using a domain name.');
     process.exit(1);
   }
   if (!database.password || ['postgres', 'password', 'changeme'].includes(decodeURIComponent(database.password).toLowerCase())) {
@@ -102,7 +103,7 @@ app.use((req, res, next) => {
     "form-action 'self'",
     "frame-ancestors 'none'"
   ].join('; '));
-  if (IS_PRODUCTION) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  if (IS_HTTPS) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   if (req.path.startsWith('/api/')) res.setHeader('Cache-Control', 'no-store');
   const started = process.hrtime.bigint();
   res.on('finish', () => {
@@ -164,7 +165,7 @@ async function issueSession(res, userId) {
   res.cookie(COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: 'strict',
-    secure: process.env.NODE_ENV === 'production',
+    secure: IS_HTTPS,
     maxAge: SESSION_DAYS * 86400000,
     path: '/'
   });
