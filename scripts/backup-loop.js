@@ -34,5 +34,4 @@ function runBackup() {
 }
 
 runBackup();
-setInterval(runBackup, hours * 3600000).unref();
-process.stdin.resume();
+setInterval(runBackup, hours * 3600000);
