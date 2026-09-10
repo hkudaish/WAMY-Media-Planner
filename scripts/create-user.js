@@ -27,16 +27,26 @@ if (!['pending', 'active', 'disabled'].includes(status)) throw new Error('USER_S
     const passwordHash = await bcrypt.hash(password, 12);
     const { rows } = await client.query(
       `insert into profiles(name,email,password_hash,role,org,status,permissions,data_scope)
-       values($1,$2,$3,$4,$5,$6,default_permissions(),$7) returning id,email,role,org,status,data_scope`,
+       values($1,$2,$3,$4,$5,$6,default_permissions(),$7)
+       on conflict (lower(email)) do update set
+         name=excluded.name,
+         password_hash=excluded.password_hash,
+         role=excluded.role,
+         org=excluded.org,
+         status='active',
+         deleted_at=null,
+         updated_at=now()
+       returning id,email,role,org,status,data_scope`,
       [name, email, passwordHash, role, org, status, role === 'admin' ? 'all_data' : 'my_data']
     );
+    await client.query('delete from login_attempts where lower(email)=$1', [email]);
     await client.query(
       `insert into activity_log(actor_name,org,action,type,entity_table,entity_id,details)
-       values('deployment operator',$1,'إنشاء مستخدم عبر أداة التشغيل','CREATE','profiles',$2,$3)`,
+       values('deployment operator',$1,'إنشاء/تحديث مستخدم عبر أداة التشغيل','CREATE','profiles',$2,$3)`,
       [org, rows[0].id, { email, role, status }]
     );
     await client.query('commit');
-    console.log(JSON.stringify({ event: 'user_created', user: rows[0] }));
+    console.log(JSON.stringify({ event: 'user_saved', user: rows[0] }));
   } catch (error) {
     await client.query('rollback');
     throw error;
