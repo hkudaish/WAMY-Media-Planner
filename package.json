@@ -23,7 +23,9 @@
     "test:task-workflow": "node scripts/test-task-workflow.js",
     "test:user-invitations": "node scripts/test-user-invitations.js",
     "test:security": "node scripts/test-security.js",
-    "test:hierarchy": "node scripts/test-hierarchy-coding.js"
+    "test:hierarchy": "node scripts/test-hierarchy-coding.js",
+    "test:enhanced": "node scripts/test-enhanced-features.js",
+    "test": "node scripts/check.js && node scripts/test-enhanced-features.js"
   },
   "engines": {
     "node": ">=20"

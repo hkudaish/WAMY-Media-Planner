@@ -42,7 +42,9 @@ if (!process.env.DATABASE_URL) {
       ['005_granular_rbac', path.join(__dirname, '..', 'database', 'migrations', '005_granular_rbac.sql')],
       ['006_rbac_defaults', path.join(__dirname, '..', 'database', 'migrations', '006_rbac_defaults.sql')],
       ['007_enforce_task_project_relationships', path.join(__dirname, '..', 'database', 'migrations', '007_enforce_task_project_relationships.sql')],
-      ['008_hierarchical_project_structure', path.join(__dirname, '..', 'database', 'migrations', '008_hierarchical_project_structure.sql')]
+      ['008_hierarchical_project_structure', path.join(__dirname, '..', 'database', 'migrations', '008_hierarchical_project_structure.sql')],
+      ['009_performance_indexes', path.join(__dirname, '..', 'database', 'migrations', '009_performance_indexes.sql')],
+      ['010_organizations_adhoc_tasks_passwords', path.join(__dirname, '..', 'database', 'migrations', '010_organizations_adhoc_tasks_passwords.sql')]
     ];
     for (const [version, file] of migrations) {
       const sql = fs.readFileSync(file, 'utf8');

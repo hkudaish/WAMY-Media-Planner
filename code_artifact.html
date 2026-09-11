@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="referrer" content="strict-origin-when-cross-origin">
-    <title>لوحة متابعة الخطة الزمنية لمنتجات التواصل الاستراتيجي | WAMY &amp; إمعان</title>
+    <title>لوحة متابعة الخطة الزمنية لمنتجات التواصل الاستراتيجي | الندوة العالمية</title>
 
     <!-- Tailwind (Play CDN). Compiles utility classes in the browser: the
          cost of keeping this a single self-contained file. -->
@@ -208,9 +208,33 @@
        Codes are the stored values; labels are presentation only. This is
        what lets a status be renamed or translated without a migration.
        --------------------------------------------------------------- */
+    const ORG_ACCENTS = {
+        blue:    { dot: 'bg-blue-500',    text: 'text-blue-300',    chip: 'bg-blue-950 text-blue-300 border-blue-500/40',       bar: 'bg-blue-500' },
+        emerald: { dot: 'bg-emerald-500', text: 'text-emerald-300', chip: 'bg-emerald-950 text-emerald-300 border-emerald-500/40', bar: 'bg-emerald-500' },
+        purple:  { dot: 'bg-purple-500',  text: 'text-purple-300',  chip: 'bg-purple-950 text-purple-300 border-purple-500/40',   bar: 'bg-purple-500' },
+        amber:   { dot: 'bg-amber-500',   text: 'text-amber-300',   chip: 'bg-amber-950 text-amber-300 border-amber-500/40',     bar: 'bg-amber-500' },
+        cyan:    { dot: 'bg-cyan-500',    text: 'text-cyan-300',    chip: 'bg-cyan-950 text-cyan-300 border-cyan-500/40',       bar: 'bg-cyan-500' },
+        rose:    { dot: 'bg-rose-500',    text: 'text-rose-300',    chip: 'bg-rose-950 text-rose-300 border-rose-500/40',       bar: 'bg-rose-500' }
+    };
     const ORGS = {
-        wamy:  { code: 'wamy',  label: 'الندوة WAMY', short: 'الندوة', accent: 'blue',    dot: 'bg-blue-500',    text: 'text-blue-300',    chip: 'bg-blue-950 text-blue-300 border-blue-500/40',       bar: 'bg-blue-500' },
-        imaan: { code: 'imaan', label: 'إمعان',        short: 'إمعان',  accent: 'emerald', dot: 'bg-emerald-500', text: 'text-emerald-300', chip: 'bg-emerald-950 text-emerald-300 border-emerald-500/40', bar: 'bg-emerald-500' }
+        wamy:  { code: 'wamy',  label: 'الندوة WAMY', short: 'الندوة', accent: 'blue',    ...ORG_ACCENTS.blue },
+        imaan: { code: 'imaan', label: 'إمعان',        short: 'إمعان',  accent: 'emerald', ...ORG_ACCENTS.emerald }
+    };
+    let DYNAMIC_ORGS_MAP = { ...ORGS };
+    const setDynamicOrgs = (orgsList) => {
+        if (!Array.isArray(orgsList)) return;
+        const map = { ...ORGS };
+        orgsList.forEach(o => {
+            const acc = ORG_ACCENTS[o.accent_color] || ORG_ACCENTS.blue;
+            map[o.code] = {
+                code: o.code,
+                label: o.name,
+                short: o.short_name || o.name,
+                accent: o.accent_color || 'blue',
+                ...acc
+            };
+        });
+        DYNAMIC_ORGS_MAP = map;
     };
     const ORG_LIST = Object.values(ORGS);
 
@@ -279,6 +303,7 @@
         { label: 'الشاشات', items: [['Dashboard.View','لوحة المؤشرات'],['MainPlan.View','الخطة الرئيسية'],['Products.View','المنتجات'],['Tasks.View','المهام'],['Timeline.View','الخطة الزمنية'],['Calendar.View','التقويم'],['Files.View','الملفات'],['Reports.View','التقارير'],['Settings.View','الإعدادات'],['Audit.View','سجل النشاط']].map(([key,label]) => ({key,label})) },
         { label: 'المشاريع', items: permissionEntries('Projects', [['View','عرض'],['Create','إنشاء'],['Edit','تعديل'],['Delete','حذف'],['Archive','أرشفة']]) },
         { label: 'الخطط', items: permissionEntries('Plans', [['View','عرض'],['Create','إنشاء'],['Import','استيراد'],['Edit','تعديل'],['Archive','أرشفة'],['Export','تصدير']]) },
+        { label: 'الجهات', items: permissionEntries('Organizations', [['View','عرض'],['Create','إنشاء'],['Edit','تعديل'],['Delete','حذف'],['Activate','تفعيل'],['Deactivate','تعطيل']]) },
         { label: 'المنتجات والمراحل', items: [...permissionEntries('Products', [['Create','إنشاء منتج'],['Edit','تعديل منتج'],['Delete','حذف منتج']]), ...permissionEntries('Milestones', [['View','عرض مرحلة'],['Create','إنشاء مرحلة'],['Edit','تعديل مرحلة'],['Delete','حذف مرحلة']])] },
         { label: 'المهام', items: permissionEntries('Tasks', [['Create','إنشاء'],['Edit','تعديل'],['Assign','إسناد'],['Delete','حذف'],['Start','بدء'],['Complete','إنهاء'],['Approve','اعتماد'],['Close','إغلاق']]) },
         { label: 'التقارير', items: permissionEntries('Reports', [['Export','تصدير'],['ExecutiveView','تنفيذي'],['FinancialView','مالي'],['TeamPerformanceView','أداء الفرق']]) },
@@ -303,7 +328,13 @@
        3. Small helpers
        --------------------------------------------------------------- */
     const cx = (...parts) => parts.filter(Boolean).join(' ');
-    const org = (code) => ORGS[code] || ORGS.wamy;
+    const org = (code) => DYNAMIC_ORGS_MAP[code] || ORGS[code] || {
+        code,
+        label: code,
+        short: code,
+        accent: 'blue',
+        ...ORG_ACCENTS.blue
+    };
     const lookup = (map, code, fallbackKey) => map[code] || map[fallbackKey];
 
     const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -474,10 +505,20 @@
         };
 
         return {
-            auth,
+            auth: {
+                ...auth,
+                changePassword: (payload) => request('/auth/change-password', { method: 'POST', body: JSON.stringify(payload) })
+            },
             profiles: {
                 ...resource('profiles'), mine: () => request('/profiles/me'),
-                invite: (values) => request('/profiles/invite', { method: 'POST', body: JSON.stringify(values) })
+                invite: (values) => request('/profiles/invite', { method: 'POST', body: JSON.stringify(values) }),
+                resetPassword: (id, payload) => request('/profiles/' + encodeURIComponent(id) + '/reset-password', { method: 'POST', body: JSON.stringify(payload) })
+            },
+            organizations: {
+                ...resource('organizations'),
+                activate: (id) => request('/organizations/' + encodeURIComponent(id) + '/activate', { method: 'POST' }),
+                deactivate: (id) => request('/organizations/' + encodeURIComponent(id) + '/deactivate', { method: 'POST' }),
+                getDependencies: (id) => request('/organizations/' + encodeURIComponent(id) + '/dependencies')
             },
             projects: {
                 ...resource('projects'),
@@ -1014,10 +1055,14 @@
     }
 
     const WamyLogo = ({ className = 'w-10 h-10' }) => (
-        <span className={cx('bg-gradient-to-tr from-blue-700 via-blue-600 to-indigo-600 rounded-xl flex items-center justify-center text-white shrink-0 font-black shadow-lg shadow-blue-600/30 border border-blue-400/30 select-none', className)} aria-hidden="true">
-            <svg viewBox="0 0 100 100" className="w-[64%] h-[64%]" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M14 24 L32 78 L47 38 L53 38 L68 78 L86 24 H74 L60.5 64 L52.5 38 H47.5 L39.5 64 L26 24 Z" fill="currentColor" />
-                <circle cx="50" cy="19" r="6" fill="#93c5fd" />
+        <span className={cx('bg-white rounded-xl flex items-center justify-center text-[#0080ff] shrink-0 font-black shadow-md shadow-blue-900/20 border border-slate-100 select-none overflow-hidden p-1', className)} aria-hidden="true">
+            <svg viewBox="17 23 64 54" className="w-full h-full" fill="none" xmlns="http://www.w3.org/2000/svg">
+                {/* Left Stroke */}
+                <path d="M19 25.5 H28 C33 25.5 36.5 28.5 38.5 34 L49.5 68 C51 72.5 48 75 43.5 75 H34 C29.5 75 26.5 71.5 25 66.5 L19 25.5 Z" fill="currentColor" />
+                {/* Middle Stroke */}
+                <path d="M39 25.5 H48 C53 25.5 56.5 28.5 58.5 34 L62.5 50 L62.2 75 H50.5 C46.5 75 44 71.5 42.5 66.5 L39 25.5 Z" fill="currentColor" />
+                {/* Right Wing Stroke */}
+                <path d="M66.5 25.5 H76 C78.5 25.5 80 27 79 30 L74 45 C73 48 70 49.5 66.5 49.5 H61 L66.5 25.5 Z" fill="currentColor" />
             </svg>
         </span>
     );
@@ -1862,15 +1907,19 @@
     function TasksScreen({ data, profile, filters, onCreate, onImport, templateUrl, onEdit, onDelete, onQuickStatus, onAssign }) {
         const { tasks, products, profiles, projects, planItems } = data;
         const [statusFilter, setStatusFilter] = useState('all');
+        const [modeFilter, setModeFilter] = useState('all'); // 'all' | 'structured' | 'adhoc'
         const orgFilter = (filters && filters.org) || 'all';
 
         const orgTasks = useMemo(() => orgFilter === 'all' ? tasks : tasks.filter(t => t.org === orgFilter), [tasks, orgFilter]);
 
-        const visible = useMemo(() => orgTasks.filter(t =>
-            (statusFilter === 'all'
-                || (statusFilter === 'overdue' ? isOverdue(t) : t.status === statusFilter)) &&
-            (!filters.query || (t.title + ' ' + (t.description || '')).toLowerCase().includes(filters.query))
-        ), [orgTasks, filters.query, statusFilter]);
+        const visible = useMemo(() => orgTasks.filter(t => {
+            const isAdhoc = t.task_mode === 'adhoc';
+            if (modeFilter === 'structured' && isAdhoc) return false;
+            if (modeFilter === 'adhoc' && !isAdhoc) return false;
+            if (statusFilter !== 'all' && (statusFilter === 'overdue' ? !isOverdue(t) : t.status !== statusFilter)) return false;
+            if (filters.query && !(t.title + ' ' + (t.description || '')).toLowerCase().includes(filters.query)) return false;
+            return true;
+        }), [orgTasks, filters.query, statusFilter, modeFilter]);
 
         const nameOf    = (id) => (byId(profiles, id) || {}).name;
         const productOf = (id) => (byId(products, id) || {}).code;
@@ -1890,9 +1939,12 @@
             { key: 'overdue', label: 'متأخرة', count: orgTasks.filter(isOverdue).length }
         ], [orgTasks]);
 
+        const structuredCount = useMemo(() => orgTasks.filter(t => t.task_mode !== 'adhoc').length, [orgTasks]);
+        const adhocCount = useMemo(() => orgTasks.filter(t => t.task_mode === 'adhoc').length, [orgTasks]);
+
         return (
             <div className="space-y-5">
-                <SectionHeading icon="fa-list-check" title="المهام التنفيذية" description="متابعة التنفيذ والإنجاز لكل منتج">
+                <SectionHeading icon="fa-list-check" title="المهام التنفيذية والتشغيلية" description="متابعة التنفيذ والإنجاز لمهام المشاريع والمهام التشغيلية المستقلة">
                     {(mayCreate || mayImport || mayDownloadTemplate) && (
                         <div className="flex flex-wrap gap-2">
                             {mayDownloadTemplate && <a href={templateUrl} download
@@ -1909,17 +1961,40 @@
                     )}
                 </SectionHeading>
 
-                <div className="flex flex-wrap gap-2 no-print">
-                    {chips.map(c => (
-                        <button key={c.key} onClick={() => setStatusFilter(c.key)}
-                                aria-pressed={statusFilter === c.key}
-                                className={cx('px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors',
-                                    statusFilter === c.key
-                                        ? 'bg-blue-600 border-blue-500 text-white'
-                                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white')}>
-                            {c.label} <span className="opacity-60">({c.count})</span>
+                {/* Mode and Status Filter Bars */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 no-print">
+                    <div className="inline-flex p-1 bg-slate-900 border border-slate-800 rounded-xl">
+                        <button type="button" onClick={() => setModeFilter('all')}
+                                className={cx('px-3 py-1.5 rounded-lg text-xs font-bold transition-colors',
+                                    modeFilter === 'all' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white')}>
+                            الكل ({orgTasks.length})
                         </button>
-                    ))}
+                        <button type="button" onClick={() => setModeFilter('structured')}
+                                className={cx('px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5',
+                                    modeFilter === 'structured' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white')}>
+                            <i className="fa-solid fa-folder-tree text-[11px]"></i>
+                            <span>مهام المشاريع ({structuredCount})</span>
+                        </button>
+                        <button type="button" onClick={() => setModeFilter('adhoc')}
+                                className={cx('px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5',
+                                    modeFilter === 'adhoc' ? 'bg-amber-600 text-white shadow' : 'text-slate-400 hover:text-white')}>
+                            <i className="fa-solid fa-bolt text-[11px]"></i>
+                            <span>المهام المستقلة ({adhocCount})</span>
+                        </button>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5">
+                        {chips.map(c => (
+                            <button key={c.key} onClick={() => setStatusFilter(c.key)}
+                                    aria-pressed={statusFilter === c.key}
+                                    className={cx('px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-colors',
+                                        statusFilter === c.key
+                                            ? 'bg-blue-600 border-blue-500 text-white'
+                                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white')}>
+                                {c.label} <span className="opacity-60">({c.count})</span>
+                            </button>
+                        ))}
+                    </div>
                 </div>
 
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-md">
@@ -1935,7 +2010,7 @@
                                 <caption className="sr-only">قائمة المهام التنفيذية</caption>
                                 <thead>
                                     <tr className="border-b border-slate-800 text-slate-400 bg-slate-950/40 text-xs">
-                                        <th scope="col" className="p-4 font-bold text-start">المهمة</th>
+                                        <th scope="col" className="p-4 font-bold text-start">المهمة والنوع</th>
                                         <th scope="col" className="p-4 font-bold text-start">الجهة</th>
                                         <th scope="col" className="p-4 font-bold text-start">المسؤولون</th>
                                         <th scope="col" className="p-4 font-bold text-start">الاستحقاق</th>
@@ -1946,17 +2021,29 @@
                                 </thead>
                                 <tbody className="divide-y divide-slate-800/60">
                                     {visible.map(t => {
+                                        const isAdhoc = t.task_mode === 'adhoc';
                                         const status = lookup(TASK_STATUS, t.status, 'not_started');
                                         const late   = isOverdue(t);
                                         const mine   = (t.assignee_ids || []).includes(profile.id) || t.assignee_id === profile.id;
                                         const mayEditRow = can(profile, 'Tasks.Edit') || (mine && canAny(profile, 'Tasks.Start','Tasks.Complete'));
-                                        const linkedProject = projectOf(t.project_id);
-                                        const linkedPlan = planOf(t.plan_item_id);
+                                        const linkedProject = !isAdhoc ? projectOf(t.project_id) : null;
+                                        const linkedPlan = !isAdhoc ? planOf(t.plan_item_id) : null;
                                         const dueAt = t.scheduled_due_at || t.due_date;
                                         return (
                                             <tr key={t.id} className="hover:bg-slate-800/30 align-top">
                                                 <td className="p-4">
-                                                    {t.phase_name && <span className="inline-block text-[11px] text-purple-300 bg-purple-950/50 border border-purple-500/30 rounded px-2 py-0.5 mb-1">{t.phase_name}</span>}
+                                                    <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                                                        {isAdhoc ? (
+                                                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-300 bg-amber-950/60 border border-amber-500/40 rounded px-2 py-0.5">
+                                                                <i className="fa-solid fa-bolt text-[10px]"></i>مهمة مستقلة
+                                                            </span>
+                                                        ) : (
+                                                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-300 bg-blue-950/60 border border-blue-500/40 rounded px-2 py-0.5">
+                                                                <i className="fa-solid fa-folder-tree text-[10px]"></i>مهمة مشروع
+                                                            </span>
+                                                        )}
+                                                        {t.phase_name && <span className="inline-block text-[11px] text-purple-300 bg-purple-950/50 border border-purple-500/30 rounded px-2 py-0.5">{t.phase_name}</span>}
+                                                    </div>
                                                     <p className="font-bold text-white leading-relaxed">{t.title}</p>
                                                     {t.description && <span className="text-xs text-slate-400">{t.description}</span>}
                                                     {t.notes && <span className="block text-xs text-amber-300/80 mt-1"><i className="fa-regular fa-note-sticky me-1"></i>{t.notes}</span>}
@@ -2310,10 +2397,11 @@
         );
     }
 
-    function UsersScreen({ data, profile, onEdit, onDelete, onInvite }) {
+    function UsersScreen({ data, profile, onEdit, onDelete, onInvite, onResetPassword }) {
         const { profiles } = data;
-        const mayEdit = isAdmin(profile);
+        const mayEdit = isAdmin(profile) || can(profile, 'Settings.Users');
         const mayDelete = isAdmin(profile);
+        const mayResetPw = isAdmin(profile);
 
         return (
             <div className="space-y-5">
@@ -2378,9 +2466,15 @@
                                                 {mayEdit ? (
                                                     <div className="flex items-center justify-center gap-1.5">
                                                         <button onClick={() => onEdit(u)} aria-label={`تعديل ${u.name}`}
-                                                                className="p-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded-lg">
+                                                                className="p-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded-lg" title="تعديل المستخدم">
                                                             <i className="fa-solid fa-pen-to-square"></i>
                                                         </button>
+                                                        {mayResetPw && onResetPassword && (
+                                                            <button onClick={() => onResetPassword(u)} title="إعادة تعيين كلمة المرور" aria-label={`إعادة تعيين كلمة المرور لـ ${u.name}`}
+                                                                    className="p-2 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 rounded-lg">
+                                                                <i className="fa-solid fa-key"></i>
+                                                            </button>
+                                                        )}
                                                         {isAdmin(profile) && u.status === 'pending' && (
                                                             <button onClick={() => onInvite(u)} title="إصدار رابط تسجيل جديد" aria-label={`دعوة ${u.name}`}
                                                                     className="p-2 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 rounded-lg">
@@ -2389,7 +2483,7 @@
                                                         )}
                                                         {mayDelete && u.id !== profile.id && (
                                                             <button onClick={() => onDelete(u)} aria-label={`حذف ${u.name}`}
-                                                                    className="p-2 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 rounded-lg">
+                                                                    className="p-2 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 rounded-lg" title="حذف المستخدم">
                                                                 <i className="fa-solid fa-trash-can"></i>
                                                             </button>
                                                         )}
@@ -2404,6 +2498,458 @@
                     </div>
                 </div>
             </div>
+        );
+    }
+
+    function ChangePasswordModal({ open, api, onClose, toast }) {
+        const [currentPassword, setCurrentPassword] = useState('');
+        const [newPassword, setNewPassword] = useState('');
+        const [confirmPassword, setConfirmPassword] = useState('');
+        const [busy, setBusy] = useState(false);
+
+        useEffect(() => {
+            if (open) {
+                setCurrentPassword('');
+                setNewPassword('');
+                setConfirmPassword('');
+                setBusy(false);
+            }
+        }, [open]);
+
+        const handleSubmit = async (e) => {
+            e.preventDefault();
+            if (newPassword.length < 12) {
+                toast('يجب أن تكون كلمة المرور الجديدة 12 حرفاً على الأقل', 'error');
+                return;
+            }
+            if (newPassword !== confirmPassword) {
+                toast('كلمتا المرور غير متطابقتين', 'error');
+                return;
+            }
+            setBusy(true);
+            try {
+                await api.auth.changePassword({
+                    current_password: currentPassword,
+                    new_password: newPassword
+                });
+                toast('تم تغيير كلمة المرور بنجاح وتسجيل الخروج من الجلسات الأخرى', 'success');
+                onClose();
+            } catch (err) {
+                toast(err.message || 'تعذر تغيير كلمة المرور', 'error');
+            } finally {
+                setBusy(false);
+            }
+        };
+
+        return (
+            <Modal open={open} onClose={onClose} title="تغيير كلمة المرور الخاصة بك" size="md"
+                   subtitle="تغيير كلمة المرور الشخصية مع إبطال الجلسات الأخرى النشطة تلقائياً"
+                   footer={
+                       <React.Fragment>
+                           <button type="button" onClick={onClose} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-sm font-bold">إلغاء</button>
+                           <button type="submit" form="change-pw-form" disabled={busy} className="px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white rounded-xl text-sm font-bold">
+                               {busy && <i className="fa-solid fa-circle-notch fa-spin me-1.5"></i>}تغيير كلمة المرور
+                           </button>
+                       </React.Fragment>
+                   }>
+                <form id="change-pw-form" onSubmit={handleSubmit} className="space-y-4">
+                    <Field label="كلمة المرور الحالية" required>
+                        <input type="password" className={inputClass} value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} required placeholder="••••••••••••" />
+                    </Field>
+                    <Field label="كلمة المرور الجديدة" required hint="12 حرفاً على الأقل">
+                        <input type="password" className={inputClass} value={newPassword} onChange={e => setNewPassword(e.target.value)} required minLength="12" placeholder="••••••••••••" />
+                    </Field>
+                    <Field label="تأكيد كلمة المرور الجديدة" required>
+                        <input type="password" className={inputClass} value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required minLength="12" placeholder="••••••••••••" />
+                    </Field>
+                </form>
+            </Modal>
+        );
+    }
+
+    function ResetPasswordModal({ open, user, api, onClose, toast }) {
+        const [newPassword, setNewPassword] = useState('');
+        const [confirmPassword, setConfirmPassword] = useState('');
+        const [busy, setBusy] = useState(false);
+
+        useEffect(() => {
+            if (open) {
+                setNewPassword('');
+                setConfirmPassword('');
+                setBusy(false);
+            }
+        }, [open]);
+
+        const handleSubmit = async (e) => {
+            e.preventDefault();
+            if (!user) return;
+            if (newPassword.length < 12) {
+                toast('يجب أن تكون كلمة المرور 12 حرفاً على الأقل', 'error');
+                return;
+            }
+            if (newPassword !== confirmPassword) {
+                toast('كلمتا المرور غير متطابقتين', 'error');
+                return;
+            }
+            setBusy(true);
+            try {
+                await api.profiles.resetPassword(user.id, { new_password: newPassword });
+                toast(`تمت إعادة تعيين كلمة المرور للمستخدم ${user.name} بنجاح وإلغاء جلساته النشطة`, 'success');
+                onClose();
+            } catch (err) {
+                toast(err.message || 'تعذر إعادة تعيين كلمة المرور', 'error');
+            } finally {
+                setBusy(false);
+            }
+        };
+
+        if (!user) return null;
+
+        return (
+            <Modal open={open} onClose={onClose} title={`إعادة تعيين كلمة المرور: ${user.name}`} size="md"
+                   subtitle="إجراء إداري لتعيين كلمة مرور جديدة للمستخدم مع تسجيل خروجه فورياً من كافة أجهزته"
+                   footer={
+                       <React.Fragment>
+                           <button type="button" onClick={onClose} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-sm font-bold">إلغاء</button>
+                           <button type="submit" form="reset-pw-form" disabled={busy} className="px-5 py-2 bg-amber-600 hover:bg-amber-500 disabled:opacity-60 text-white rounded-xl text-sm font-bold">
+                               {busy && <i className="fa-solid fa-circle-notch fa-spin me-1.5"></i>}تأكيد إعادة التعيين
+                           </button>
+                       </React.Fragment>
+                   }>
+                <form id="reset-pw-form" onSubmit={handleSubmit} className="space-y-4">
+                    <div className="p-3 bg-amber-950/40 border border-amber-500/30 rounded-xl text-xs text-amber-300 flex items-start gap-2.5">
+                        <i className="fa-solid fa-triangle-exclamation text-amber-400 mt-0.5"></i>
+                        <span>سيتم إلغاء صلاحية كافة الجلسات الحالية للمستخدم <strong>{user.name} ({user.email})</strong> وسيتعين عليه تسجيل الدخول بكلمة المرور الجديدة.</span>
+                    </div>
+                    <Field label="كلمة المرور الجديدة" required hint="12 حرفاً على الأقل">
+                        <input type="password" className={inputClass} value={newPassword} onChange={e => setNewPassword(e.target.value)} required minLength="12" placeholder="••••••••••••" />
+                    </Field>
+                    <Field label="تأكيد كلمة المرور الجديدة" required>
+                        <input type="password" className={inputClass} value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required minLength="12" placeholder="••••••••••••" />
+                    </Field>
+                </form>
+            </Modal>
+        );
+    }
+
+    function OrganizationModal({ open, initial, onClose, onSubmit, busy }) {
+        const blank = { code: '', name: '', short_name: '', accent_color: 'blue', is_active: true };
+        const [form, setForm] = useState(blank);
+
+        useEffect(() => {
+            if (!open) return;
+            if (initial) {
+                setForm({
+                    code: initial.code || '',
+                    name: initial.name || '',
+                    short_name: initial.short_name || '',
+                    accent_color: initial.accent_color || 'blue',
+                    is_active: initial.is_active !== false
+                });
+            } else {
+                setForm(blank);
+            }
+        }, [open, initial]);
+
+        const set = key => e => {
+            const val = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+            setForm(prev => ({ ...prev, [key]: val }));
+        };
+
+        const accentOptions = [
+            { key: 'blue', label: 'أزرق (Blue)' },
+            { key: 'emerald', label: 'أخضر زمردي (Emerald)' },
+            { key: 'purple', label: 'بنفسجي (Purple)' },
+            { key: 'amber', label: 'كهرماني (Amber)' },
+            { key: 'cyan', label: 'سماوي (Cyan)' },
+            { key: 'rose', label: 'وردي (Rose)' }
+        ];
+
+        return (
+            <Modal open={open} onClose={onClose} size="md"
+                   title={initial ? 'تعديل بيانات الجهة' : 'إضافة جهة جديدة'}
+                   subtitle="إدارة الجهات والمؤسسات الشريكة في النظام"
+                   footer={
+                       <React.Fragment>
+                           <button type="button" onClick={onClose} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-sm font-bold">إلغاء</button>
+                           <button type="submit" form="org-form" disabled={busy} className="px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white rounded-xl text-sm font-bold">
+                               {busy && <i className="fa-solid fa-circle-notch fa-spin me-1.5"></i>}حفظ الجهة
+                           </button>
+                       </React.Fragment>
+                   }>
+                <form id="org-form" onSubmit={(e) => { e.preventDefault(); onSubmit(form); }} className="space-y-4">
+                    <Field label="رمز الجهة الفريد (Code)" required hint="أحرف إنجليزية وأرقام وشرطات فقط، مثال: wamy, imaan">
+                        <input className={cx(inputClass, 'font-mono')} dir="ltr" value={form.code} onChange={set('code')} required disabled={!!initial} maxLength="50" placeholder="org-code" />
+                    </Field>
+                    <Field label="اسم الجهة الكامل" required>
+                        <input className={inputClass} value={form.name} onChange={set('name')} required maxLength="150" placeholder="مثال: الندوة العالمية للشباب الإسلامي" />
+                    </Field>
+                    <Field label="الاسم المختصر">
+                        <input className={inputClass} value={form.short_name} onChange={set('short_name')} maxLength="50" placeholder="مثال: الندوة WAMY" />
+                    </Field>
+                    <div className="grid grid-cols-2 gap-4">
+                        <Field label="اللون المميز (Accent)">
+                            <select className={inputClass} value={form.accent_color} onChange={set('accent_color')}>
+                                {accentOptions.map(opt => <option key={opt.key} value={opt.key}>{opt.label}</option>)}
+                            </select>
+                        </Field>
+                        <div className="flex items-center pt-6">
+                            <label className="flex items-center gap-2 cursor-pointer text-sm font-bold text-slate-200">
+                                <input type="checkbox" checked={form.is_active} onChange={set('is_active')} className="w-4 h-4 accent-blue-600 rounded" />
+                                <span>الجهة نشطة ومتاحة للاختيار</span>
+                            </label>
+                        </div>
+                    </div>
+                </form>
+            </Modal>
+        );
+    }
+
+    function OrganizationsManagementSection({ data, profile, api, refresh, toast }) {
+        const [orgModal, setOrgModal] = useState(null);
+        const [busy, setBusy] = useState(false);
+        const mayCreate = canAny(profile, 'Organizations.Create', 'Settings.General') || isAdmin(profile);
+        const mayEdit = canAny(profile, 'Organizations.Edit', 'Settings.General') || isAdmin(profile);
+        const mayDelete = canAny(profile, 'Organizations.Delete', 'Settings.General') || isAdmin(profile);
+
+        const orgsList = data.organizations || [];
+
+        const handleSave = async (form) => {
+            setBusy(true);
+            try {
+                if (orgModal.initial) {
+                    await api.organizations.update(orgModal.initial.id, form);
+                    toast('تم تحديث بيانات الجهة بنجاح', 'success');
+                } else {
+                    await api.organizations.create(form);
+                    toast('تمت إضافة الجهة بنجاح', 'success');
+                }
+                setOrgModal(null);
+                await refresh(true);
+            } catch (err) {
+                toast(err.message || 'تعذر حفظ بيانات الجهة', 'error');
+            } finally {
+                setBusy(false);
+            }
+        };
+
+        const handleToggleStatus = async (o) => {
+            setBusy(true);
+            try {
+                if (o.is_active) {
+                    await api.organizations.deactivate(o.id);
+                    toast(`تم تعطيل الجهة ${o.name}`, 'success');
+                } else {
+                    await api.organizations.activate(o.id);
+                    toast(`تم تفعيل الجهة ${o.name}`, 'success');
+                }
+                await refresh(true);
+            } catch (err) {
+                toast(err.message || 'تعذر تغيير حالة الجهة', 'error');
+            } finally {
+                setBusy(false);
+            }
+        };
+
+        const handleDelete = async (o) => {
+            if (!confirm(`هل أنت متأكد من حذف الجهة «${o.name}» نهائياً؟ لا يمكن حذف جهة مرتبطة بمشاريع أو مستخدمين.`)) return;
+            setBusy(true);
+            try {
+                await api.organizations.remove(o.id);
+                toast('تم حذف الجهة بنجاح', 'success');
+                await refresh(true);
+            } catch (err) {
+                toast(err.message || 'تعذر حذف الجهة', 'error');
+            } finally {
+                setBusy(false);
+            }
+        };
+
+        return (
+            <div className="space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <SectionHeading icon="fa-building-columns" title="إدارة الجهات والمؤسسات"
+                                    description="إدارة الجهات الشريكة، أكوادها الفريدة، وحالات التفعيل للأعمال التشغيلية." />
+                    {mayCreate && (
+                        <button type="button" onClick={() => setOrgModal({ initial: null })}
+                                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-bold flex items-center gap-1.5 shrink-0">
+                            <i className="fa-solid fa-plus"></i>
+                            <span>إضافة جهة جديدة</span>
+                        </button>
+                    )}
+                </div>
+
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-md">
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                            <caption className="sr-only">قائمة الجهات</caption>
+                            <thead>
+                                <tr className="border-b border-slate-800 text-slate-400 bg-slate-950/40 text-xs">
+                                    <th scope="col" className="p-4 font-bold text-start">رمز الجهة</th>
+                                    <th scope="col" className="p-4 font-bold text-start">الاسم الكامل</th>
+                                    <th scope="col" className="p-4 font-bold text-start">الاسم المختصر</th>
+                                    <th scope="col" className="p-4 font-bold text-start">المظهر واللون</th>
+                                    <th scope="col" className="p-4 font-bold text-start">الحالة</th>
+                                    <th scope="col" className="p-4 font-bold text-center no-print">إجراءات</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-800/60">
+                                {orgsList.map(o => {
+                                    const acc = ORG_ACCENTS[o.accent_color] || ORG_ACCENTS.blue;
+                                    return (
+                                        <tr key={o.id || o.code} className="hover:bg-slate-800/30">
+                                            <td className="p-4 font-mono font-bold text-blue-300" dir="ltr">{o.code}</td>
+                                            <td className="p-4 font-bold text-white">{o.name}</td>
+                                            <td className="p-4 text-slate-300">{o.short_name || '—'}</td>
+                                            <td className="p-4">
+                                                <span className={cx('inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs border font-medium', acc.chip)}>
+                                                    <span className={cx('w-2 h-2 rounded-full', acc.dot)}></span>
+                                                    {o.accent_color || 'blue'}
+                                                </span>
+                                            </td>
+                                            <td className="p-4">
+                                                {o.is_active ? (
+                                                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-950 text-emerald-300 border border-emerald-500/40">نشطة</span>
+                                                ) : (
+                                                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-800 text-slate-400 border border-slate-600/40">معطلة</span>
+                                                )}
+                                            </td>
+                                            <td className="p-4 no-print text-center">
+                                                <div className="flex items-center justify-center gap-1.5">
+                                                    {mayEdit && (
+                                                        <button type="button" onClick={() => setOrgModal({ initial: o })}
+                                                                title="تعديل الجهة" className="p-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded-lg">
+                                                            <i className="fa-solid fa-pen-to-square"></i>
+                                                        </button>
+                                                    )}
+                                                    {mayEdit && (
+                                                        <button type="button" onClick={() => handleToggleStatus(o)} disabled={busy}
+                                                                title={o.is_active ? 'تعطيل الجهة' : 'تفعيل الجهة'}
+                                                                className={cx('p-2 rounded-lg', o.is_active ? 'bg-amber-600/20 hover:bg-amber-600/30 text-amber-300' : 'bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300')}>
+                                                            <i className={cx('fa-solid', o.is_active ? 'fa-ban' : 'fa-check')}></i>
+                                                        </button>
+                                                    )}
+                                                    {mayDelete && (
+                                                        <button type="button" onClick={() => handleDelete(o)} disabled={busy}
+                                                                title="حذف الجهة" className="p-2 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 rounded-lg">
+                                                            <i className="fa-solid fa-trash-can"></i>
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                {orgModal && (
+                    <OrganizationModal open={true} initial={orgModal.initial}
+                                       onClose={() => setOrgModal(null)}
+                                       onSubmit={handleSave}
+                                       busy={busy} />
+                )}
+            </div>
+        );
+    }
+
+    function PlanItemQuickModal({ open, projectId, api, onClose, onCreated, toast }) {
+        const blank = {
+            project_id: projectId || '',
+            track: '',
+            phase: '',
+            title: '',
+            content: '',
+            kpi: '',
+            target: '',
+            quantity: '',
+            unit: '',
+            priority: 'normal',
+            planned_start: '',
+            planned_end: ''
+        };
+        const [form, setForm] = useState(blank);
+        const [busy, setBusy] = useState(false);
+
+        useEffect(() => {
+            if (open) {
+                setForm({ ...blank, project_id: projectId || '' });
+                setBusy(false);
+            }
+        }, [open, projectId]);
+
+        const set = key => e => setForm(prev => ({ ...prev, [key]: e.target.value }));
+
+        const handleSubmit = async (e) => {
+            e.preventDefault();
+            if (!form.title.trim()) {
+                toast('يرجى كتابة عنوان البند أو المنتج المعتمد', 'error');
+                return;
+            }
+            setBusy(true);
+            try {
+                const created = await api.planItems.create({
+                    ...form,
+                    quantity: form.quantity ? Number(form.quantity) : null,
+                    planned_start: form.planned_start || null,
+                    planned_end: form.planned_end || null
+                });
+                toast('تمت إضافة بند الخطة بنجاح', 'success');
+                onCreated(created);
+                onClose();
+            } catch (err) {
+                toast(err.message || 'تعذر إضافة بند الخطة', 'error');
+            } finally {
+                setBusy(false);
+            }
+        };
+
+        return (
+            <Modal open={open} onClose={onClose} title="إضافة بند خطة / منتج معتمد سريع" size="lg"
+                   subtitle="إضافة منتج أو مخرج معتمد في خطة المشروع مباشرة لاستخدامه في المهمة"
+                   footer={
+                       <React.Fragment>
+                           <button type="button" onClick={onClose} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-sm font-bold">إلغاء</button>
+                           <button type="submit" form="quick-plan-item-form" disabled={busy} className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white rounded-xl text-sm font-bold">
+                               {busy && <i className="fa-solid fa-circle-notch fa-spin me-1.5"></i>}إضافة البند للخطة
+                           </button>
+                       </React.Fragment>
+                   }>
+                <form id="quick-plan-item-form" onSubmit={handleSubmit} className="space-y-4">
+                    <Field label="عنوان المنتج / المخرج المعتمد" required>
+                        <input className={inputClass} value={form.title} onChange={set('title')} required maxLength="300" placeholder="مثال: تقرير إعلامي مرئي للحملة" />
+                    </Field>
+                    <div className="grid sm:grid-cols-2 gap-4">
+                        <Field label="المسار / الخطة الفرعية">
+                            <input className={inputClass} value={form.track} onChange={set('track')} placeholder="مثال: مسار الإنتاج المرئي" />
+                        </Field>
+                        <Field label="المرحلة">
+                            <input className={inputClass} value={form.phase} onChange={set('phase')} placeholder="مثال: مرحلة الإعداد والتنفيذ" />
+                        </Field>
+                    </div>
+                    <Field label="وصف المحتوى ومواصفات المخرج">
+                        <textarea className={cx(inputClass, 'h-20')} value={form.content} onChange={set('content')} placeholder="تفاصيل ومواصفات المخرج المطلوب..." />
+                    </Field>
+                    <div className="grid sm:grid-cols-2 gap-4">
+                        <Field label="مؤشر الأداء (KPI)">
+                            <input className={inputClass} value={form.kpi} onChange={set('kpi')} placeholder="مثال: عدد المشاهدات والتفاعل" />
+                        </Field>
+                        <Field label="المستهدف (Target)">
+                            <input className={inputClass} value={form.target} onChange={set('target')} placeholder="مثال: 50,000 مشاهدة" />
+                        </Field>
+                    </div>
+                    <div className="grid sm:grid-cols-2 gap-4">
+                        <Field label="تاريخ البدء المخطط">
+                            <input type="date" className={inputClass} value={form.planned_start} onChange={set('planned_start')} />
+                        </Field>
+                        <Field label="تاريخ الانتهاء المخطط">
+                            <input type="date" className={inputClass} value={form.planned_end} onChange={set('planned_end')} />
+                        </Field>
+                    </div>
+                </form>
+            </Modal>
         );
     }
 
@@ -3690,17 +4236,19 @@
         );
     }
 
-    function SettingsScreen({ data, profile, settings, onSave, saving, drive, driveConnected, onConnect, toast, onEditUser, onDeleteUser, onInviteUser, onEditProject, onCreateProject, onSafeDeleteProject, onOpenImport, api, refresh }) {
+    function SettingsScreen({ data, profile, settings, onSave, saving, drive, driveConnected, onConnect, toast, onEditUser, onDeleteUser, onInviteUser, onResetPasswordUser, onEditProject, onCreateProject, onSafeDeleteProject, onOpenImport, api, refresh }) {
         const mayManageDrive = can(profile, 'Settings.Integrations');
         const mayManageUsers = can(profile, 'Settings.Users');
+        const mayManageOrgs = canAny(profile, 'Organizations.View', 'Organizations.Create', 'Organizations.Edit', 'Settings.General') || isAdmin(profile);
         const mayManageProjects = canAny(profile, 'Projects.Create', 'Projects.Edit', 'Projects.Delete', 'Projects.View', 'Settings.View') || isAdmin(profile);
         const mayManageBackup = canAny(profile, 'Backup.View', 'Settings.Backup') || isAdmin(profile);
         const mayResetSystem = canAny(profile, 'System.Reset') || isAdmin(profile);
         const mayViewAudit = canAny(profile, 'Audit.View', 'AuditLog.View') || isAdmin(profile);
 
-        const [section, setSection] = useState(() => mayManageProjects ? 'projects' : mayManageDrive ? 'drive' : 'users');
+        const [section, setSection] = useState(() => mayManageProjects ? 'projects' : mayManageOrgs ? 'organizations' : mayManageDrive ? 'drive' : 'users');
         const sections = [
             mayManageProjects && { key: 'projects', label: 'إدارة المشاريع والهيكل', icon: 'fa-solid fa-folder-tree' },
+            mayManageOrgs && { key: 'organizations', label: 'الجهات والمؤسسات', icon: 'fa-solid fa-building-columns' },
             mayManageBackup && { key: 'backup', label: 'النسخ الاحتياطي والاستعادة', icon: 'fa-solid fa-database' },
             mayResetSystem && { key: 'reset', label: 'إعادة تهيئة النظام', icon: 'fa-solid fa-triangle-exclamation' },
             mayViewAudit && { key: 'audit', label: 'سجل النشاط والتدقيق', icon: 'fa-solid fa-clock-rotate-left' },
@@ -3711,7 +4259,7 @@
         return (
             <div className="space-y-6">
                 <SectionHeading icon="fa-sliders" title="إعدادات النظام وإدارة البيانات"
-                                description="إدارة هيكل المشاريع، النسخ الاحتياطي، سجل التدقيق، تكاملات النظام، والمستخدمين من مكان واحد." />
+                                description="إدارة هيكل المشاريع، الجهات، النسخ الاحتياطي، سجل التدقيق، تكاملات النظام، والمستخدمين من مكان واحد." />
 
                 {sections.length > 1 && (
                     <div className="inline-flex flex-wrap gap-1 p-1 bg-slate-900 border border-slate-800 rounded-xl no-print">
@@ -3737,6 +4285,9 @@
                                                onOpenImport={onOpenImport}
                                                toast={toast} />
                 )}
+                {section === 'organizations' && mayManageOrgs && (
+                    <OrganizationsManagementSection data={data} profile={profile} api={api} refresh={refresh} toast={toast} />
+                )}
                 {section === 'backup' && mayManageBackup && (
                     <BackupManagementSection api={api} toast={toast} refresh={refresh} />
                 )}
@@ -3752,7 +4303,7 @@
                                           onConnect={onConnect} toast={toast} />
                 )}
                 {section === 'users' && mayManageUsers && (
-                    <UsersScreen data={data} profile={profile} onEdit={onEditUser} onDelete={onDeleteUser} onInvite={onInviteUser} />
+                    <UsersScreen data={data} profile={profile} onEdit={onEditUser} onDelete={onDeleteUser} onInvite={onInviteUser} onResetPassword={onResetPasswordUser} />
                 )}
             </div>
         );
@@ -3984,7 +4535,7 @@
         const blank = {
             code: '', hierarchical_code: '', name: '', description: '',
             objective: '', vision: '', mission: '', budget: '', currency: 'SAR',
-            notes: '', org: 'wamy', manager_id: '', status: 'planning',
+            classification: '', notes: '', org: 'wamy', manager_id: '', status: 'planning',
             planned_start: '', planned_end: ''
         };
         const [form, setForm] = useState(blank);
@@ -4001,6 +4552,7 @@
                     mission: initial.mission || '',
                     budget: initial.budget !== undefined && initial.budget !== null ? String(initial.budget) : '',
                     currency: initial.currency || 'SAR',
+                    classification: initial.classification || '',
                     notes: initial.notes || '',
                     org: initial.org || 'wamy',
                     manager_id: initial.manager_id || '',
@@ -4014,6 +4566,8 @@
         }, [open, initial]);
 
         const set = key => event => setForm(value => ({ ...value, [key]: event.target.value }));
+        const orgsArray = Object.values(DYNAMIC_ORGS_MAP);
+
         return (
             <Modal open={open} onClose={onClose} title={initial ? 'تعديل بيانات المشروع' : 'إضافة مشروع جديد'} size="xl"
                    subtitle="المستوى الأول في الهيكل المؤسسي — يربط الخطط والمنتجات والمراحل والمهام"
@@ -4029,6 +4583,7 @@
                         ...form,
                         hierarchical_code: form.hierarchical_code || form.code,
                         manager_id: form.manager_id || null,
+                        classification: form.classification || null,
                         planned_start: form.planned_start || null,
                         planned_end: form.planned_end || null,
                         budget: form.budget ? Number(form.budget) : null
@@ -4043,13 +4598,20 @@
                         </Field>
                         <Field label="الجهة المسؤولة" required>
                             <select className={inputClass} value={form.org} onChange={set('org')}>
-                                {ORG_LIST.map(o => <option key={o.code} value={o.code}>{o.label}</option>)}
+                                {orgsArray.map(o => <option key={o.code} value={o.code}>{o.label}</option>)}
                             </select>
                         </Field>
                     </div>
-                    <Field label="اسم المشروع" required>
-                        <input className={inputClass} value={form.name} onChange={set('name')} required maxLength={250} placeholder="اسم المشروع المعتمد بالكامل" />
-                    </Field>
+                    <div className="grid sm:grid-cols-3 gap-4">
+                        <div className="sm:col-span-2">
+                            <Field label="اسم المشروع" required>
+                                <input className={inputClass} value={form.name} onChange={set('name')} required maxLength={250} placeholder="اسم المشروع المعتمد بالكامل" />
+                            </Field>
+                        </div>
+                        <Field label="تصنيف / نوع المشروع" hint="اختياري (مثال: تشغيلي، استراتيجي، حملة)">
+                            <input className={inputClass} value={form.classification} onChange={set('classification')} placeholder="مثال: حملة إعلامية" />
+                        </Field>
+                    </div>
                     <div className="grid sm:grid-cols-2 gap-4">
                         <Field label="الهدف الاستراتيجي">
                             <textarea className={cx(inputClass, 'h-20')} value={form.objective} onChange={set('objective')} placeholder="الأهداف الاستراتيجية والمخرجات المتوقعة..." />
@@ -4410,8 +4972,8 @@
         );
     }
 
-    function TaskWizardModal({ open, initial, defaultProjectId, initialStep, mode, data, profile, api, onClose, onSubmit, busy }) {
-        const blank = { project_id: defaultProjectId || '', plan_track: '', plan_item_id: '', phase_name: '', title: '', description: '', goal: '', required_outputs: '',
+    function TaskWizardModal({ open, initial, defaultProjectId, initialStep, mode, data, profile, api, onClose, onSubmit, onCreateProject, onCreatePlanItem, busy }) {
+        const blank = { task_mode: 'structured', project_id: defaultProjectId || '', plan_track: '', plan_item_id: '', phase_name: '', title: '', description: '', goal: '', required_outputs: '',
             priority: 'normal', notes: '', scheduled_start_at: '', scheduled_due_at: '', assignee_ids: [], org: profile.org,
             status: 'not_started', progress: 0, schedule_change_reason: '' };
         const [form, setForm] = useState(blank);
@@ -4474,9 +5036,11 @@
                 }
                 const matchedBaseline = byId(data.planItems, resolvedPlanItemId);
                 const matchedProject = byId(data.projects, resolvedProjectId);
+                const isAdhocTask = initial.task_mode === 'adhoc' || (matchedProject && matchedProject.is_system);
                 setForm({
                     ...blank,
                     ...initial,
+                    task_mode: isAdhocTask ? 'adhoc' : 'structured',
                     project_id: resolvedProjectId,
                     plan_track: (matchedBaseline && matchedBaseline.track) || '',
                     plan_item_id: resolvedPlanItemId,
@@ -4498,7 +5062,7 @@
                     api.tasks.history(initial.id).then(setHistory).catch(() => setHistory([]));
                 }
             } else {
-                setForm({ ...blank, project_id: defaultProjectId || '' });
+                setForm({ ...blank, task_mode: 'structured', project_id: defaultProjectId || '' });
             }
         }, [open, sessionKey]);
 
@@ -4650,7 +5214,7 @@
                 ? `${durationHours} ساعة`
                 : 'يوم واحد';
 
-        const canContinueStep1 = Boolean(
+        const canContinueStep1 = form.task_mode === 'adhoc' || Boolean(
             form.project_id && (projectPlanItems.length === 0 || (form.plan_item_id && projectPlanItems.some(i => i.id === form.plan_item_id)))
         );
         const canContinueStep2 = Boolean(
@@ -4682,7 +5246,7 @@
             const activeDuration = Math.max(1, Math.ceil((dueMs - startMs) / 86400000));
 
             let matchedProductId = form.product_id || null;
-            if (!matchedProductId && form.plan_item_id && data.products) {
+            if (form.task_mode !== 'adhoc' && !matchedProductId && form.plan_item_id && data.products) {
                 const matchedP = data.products.find(p => p.project_id === form.project_id && (
                     (p.hierarchical_code && baseline && p.hierarchical_code === baseline.hierarchical_code) ||
                     (p.code && baseline && (p.code === baseline.product_code || p.code === baseline.external_id))
@@ -4693,9 +5257,10 @@
             const assignedList = form.assignee_ids && form.assignee_ids.length ? form.assignee_ids : (form.assignee_id ? [form.assignee_id] : []);
 
             onSubmit({
-                project_id: form.project_id,
-                plan_item_id: form.plan_item_id || null,
-                product_id: matchedProductId,
+                task_mode: form.task_mode || 'structured',
+                project_id: form.task_mode === 'adhoc' ? (form.project_id || null) : form.project_id,
+                plan_item_id: form.task_mode === 'adhoc' ? null : (form.plan_item_id || null),
+                product_id: form.task_mode === 'adhoc' ? null : matchedProductId,
                 phase_name: form.phase_name || null,
                 title: form.title,
                 description: form.description || null,
@@ -4735,6 +5300,25 @@
                            </button>
                        </React.Fragment>
                    }>
+
+                {/* Mode Selector Toggle */}
+                {!initial && (
+                    <div className="flex p-1 bg-slate-950 border border-slate-800 rounded-xl mb-4">
+                        <button type="button" onClick={() => setForm(prev => ({ ...prev, task_mode: 'structured' }))}
+                                className={cx('flex-1 py-2 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5',
+                                    form.task_mode !== 'adhoc' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white')}>
+                            <i className="fa-solid fa-folder-tree"></i>
+                            <span>مهمة مرتبطة بمشروع وخطة</span>
+                        </button>
+                        <button type="button" onClick={() => setForm(prev => ({ ...prev, task_mode: 'adhoc' }))}
+                                className={cx('flex-1 py-2 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5',
+                                    form.task_mode === 'adhoc' ? 'bg-amber-600 text-white shadow' : 'text-slate-400 hover:text-white')}>
+                            <i className="fa-solid fa-bolt"></i>
+                            <span>مهمة تشغيلية مستقلة</span>
+                        </button>
+                    </div>
+                )}
+
                 <div className="grid grid-cols-3 gap-2 mb-5">
                     {labels.map((label, index) => {
                         const targetStepNum = index + 1;
@@ -4756,24 +5340,56 @@
                 </div>
 
                 <form id="task-wizard-form" onSubmit={submit}>
-                    {step === 1 && (
+                    {step === 1 && form.task_mode === 'adhoc' && (
+                        <div className="space-y-4">
+                            <div className="p-4 bg-amber-950/40 border border-amber-500/30 rounded-xl text-amber-300 text-sm flex items-start gap-3">
+                                <i className="fa-solid fa-bolt text-amber-400 mt-0.5 text-base"></i>
+                                <div>
+                                    <strong className="block font-bold mb-0.5">مهمة تشغيلية مستقلة</strong>
+                                    <span>هذه المهمة مستقلة وتشغيلية مباشرة ولا تشترط ربطاً مسبقاً بمشروع أو خطة معتمدة. سيتم إسنادها وتزمينها فوراً، مع إمكانية ربطها بمشروع لاحقاً عند الحاجة.</span>
+                                </div>
+                            </div>
+                            <Field label="الجهة المسؤولة" required hint="اختر الجهة المسؤولة عن تنفيذ هذه المهمة التشغيلية">
+                                <select className={inputClass} value={form.org} onChange={set('org')}>
+                                    {Object.values(DYNAMIC_ORGS_MAP).filter(o => o.is_active !== false).map(o => (
+                                        <option key={o.code} value={o.code}>{o.label}</option>
+                                    ))}
+                                </select>
+                            </Field>
+                            <Field label="المرحلة / التصنيف الداخلي (اختياري)" hint="مثال: تشغيل يومي، دعم فني، عاجل">
+                                <input className={inputClass} value={form.phase_name} onChange={e => setForm(prev => ({ ...prev, phase_name: e.target.value }))} placeholder="مثال: مهمة تشغيلية مباشرة" />
+                            </Field>
+                        </div>
+                    )}
+
+                    {step === 1 && form.task_mode !== 'adhoc' && (
                         <div className="space-y-5">
-                            <SearchableSelect
-                                label="1. المشروع"
-                                required
-                                hint="تُحمَّل المشاريع المعتمدة والنشطة تلقائيًا من قاعدة البيانات."
-                                placeholder="— اختر المشروع المعتمد —"
-                                value={form.project_id}
-                                onChange={chooseProject}
-                                options={safeProjects.filter(item => item.status !== 'cancelled').map(item => ({
-                                    value: item.id,
-                                    label: item.name,
-                                    code: item.code,
-                                    badge: item.hierarchical_code ? `${item.hierarchical_code} (${item.code})` : item.code,
-                                    subtitle: item.description
-                                }))}
-                                emptyMessage="لا توجد مشاريع مطابقة"
-                            />
+                            <div>
+                                <div className="flex items-center justify-between mb-1.5">
+                                    <span className="text-xs text-slate-400">اختر المشروع المعتمد لربط المهمة به</span>
+                                    {onCreateProject && (
+                                        <button type="button" onClick={onCreateProject} className="text-xs text-blue-400 hover:text-blue-300 font-bold flex items-center gap-1">
+                                            <i className="fa-solid fa-plus text-[10px]"></i>إنشاء مشروع جديد
+                                        </button>
+                                    )}
+                                </div>
+                                <SearchableSelect
+                                    label="1. المشروع"
+                                    required
+                                    hint="تُحمَّل المشاريع المعتمدة والنشطة تلقائيًا من قاعدة البيانات."
+                                    placeholder="— اختر المشروع المعتمد —"
+                                    value={form.project_id}
+                                    onChange={chooseProject}
+                                    options={safeProjects.filter(item => item.status !== 'cancelled' && !item.is_system).map(item => ({
+                                        value: item.id,
+                                        label: item.name,
+                                        code: item.code,
+                                        badge: item.hierarchical_code ? `${item.hierarchical_code} (${item.code})` : item.code,
+                                        subtitle: item.description
+                                    }))}
+                                    emptyMessage="لا توجد مشاريع مطابقة"
+                                />
+                            </div>
 
                             {!form.project_id && (
                                 <div className="p-4 bg-slate-900/60 border border-slate-800 rounded-xl text-slate-400 text-xs flex items-center gap-2.5">
@@ -4783,12 +5399,20 @@
                             )}
 
                             {form.project_id && projectPlanItems.length === 0 && (
-                                <div className="p-4 bg-amber-950/40 border border-amber-500/30 rounded-xl text-amber-300 text-sm flex items-start gap-3">
-                                    <i className="fa-solid fa-triangle-exclamation text-amber-400 mt-0.5 text-base"></i>
-                                    <div>
-                                        <strong className="block font-bold mb-0.5">تنبيه</strong>
-                                        <span>لا توجد منتجات أو خطط مرتبطة متاحة حالياً لهذا المشروع.</span>
+                                <div className="p-4 bg-amber-950/40 border border-amber-500/30 rounded-xl text-amber-300 text-sm flex items-start justify-between gap-3">
+                                    <div className="flex items-start gap-3">
+                                        <i className="fa-solid fa-triangle-exclamation text-amber-400 mt-0.5 text-base"></i>
+                                        <div>
+                                            <strong className="block font-bold mb-0.5">تنبيه</strong>
+                                            <span>لا توجد منتجات أو بنود خطة مسجلة حالياً لهذا المشروع. يمكنك إضافة بند جديد الآن فورياً.</span>
+                                        </div>
                                     </div>
+                                    {onCreatePlanItem && (
+                                        <button type="button" onClick={() => onCreatePlanItem(form.project_id)}
+                                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold shrink-0">
+                                            <i className="fa-solid fa-plus me-1"></i>إضافة بند خطة
+                                        </button>
+                                    )}
                                 </div>
                             )}
 
@@ -4809,25 +5433,35 @@
                                         emptyMessage="لا توجد مسارات مطابقة"
                                     />
 
-                                    <SearchableSelect
-                                        label="3. منتج المشروع / المخرج المعتمد"
-                                        required
-                                        hint="القائمة مقيّدة بالمنتجات والمخرجات المعتمدة التابعة للمشروع والمسار المختار."
-                                        placeholder={`— اختر المنتج أو المخرج (${availableProducts.length}) —`}
-                                        value={form.plan_item_id}
-                                        onChange={chooseProduct}
-                                        options={availableProducts.map(item => ({
-                                            value: item.id,
-                                            label: item.title,
-                                            code: item.hierarchical_code || item.external_id || item.code,
-                                            badge: item.hierarchical_code || item.external_id || item.code,
-                                            subtitle: item.content || item.description,
-                                            meta: item.quantity ? `الكمية المستهدفة: ${item.quantity} ${item.unit || ''}` : null,
-                                            track: item.track,
-                                            phase: item.phase
-                                        }))}
-                                        emptyMessage="لا توجد منتجات أو مخرجات مطابقة"
-                                    />
+                                    <div>
+                                        <div className="flex items-center justify-between mb-1.5">
+                                            <span className="text-xs text-slate-400">حدد المنتج أو المخرج المعتمد من الخطة</span>
+                                            {onCreatePlanItem && (
+                                                <button type="button" onClick={() => onCreatePlanItem(form.project_id)} className="text-xs text-emerald-400 hover:text-emerald-300 font-bold flex items-center gap-1">
+                                                    <i className="fa-solid fa-plus text-[10px]"></i>إضافة بند خطة جديد
+                                                </button>
+                                            )}
+                                        </div>
+                                        <SearchableSelect
+                                            label="3. منتج المشروع / المخرج المعتمد"
+                                            required
+                                            hint="القائمة مقيّدة بالمنتجات والمخرجات المعتمدة التابعة للمشروع والمسار المختار."
+                                            placeholder={`— اختر المنتج أو المخرج (${availableProducts.length}) —`}
+                                            value={form.plan_item_id}
+                                            onChange={chooseProduct}
+                                            options={availableProducts.map(item => ({
+                                                value: item.id,
+                                                label: item.title,
+                                                code: item.hierarchical_code || item.external_id || item.code,
+                                                badge: item.hierarchical_code || item.external_id || item.code,
+                                                subtitle: item.content || item.description,
+                                                meta: item.quantity ? `الكمية المستهدفة: ${item.quantity} ${item.unit || ''}` : null,
+                                                track: item.track,
+                                                phase: item.phase
+                                            }))}
+                                            emptyMessage="لا توجد منتجات أو مخرجات مطابقة"
+                                        />
+                                    </div>
 
                                     <div className="grid sm:grid-cols-2 gap-4">
                                         <SearchableSelect
@@ -4846,7 +5480,9 @@
                                         />
                                         <Field label="الجهة المسؤولة" hint={canEditOrg ? 'صلاحية لمدير أو مشرف النظام لتعديل الجهة المسؤولة عند الحاجة' : 'محددة تلقائياً حسب المشروع والخطة'}>
                                             <select className={inputClass} value={form.org} onChange={set('org')} disabled={!canEditOrg}>
-                                                {ORG_LIST.map(o => <option key={o.code} value={o.code}>{o.label}</option>)}
+                                                {Object.values(DYNAMIC_ORGS_MAP).filter(o => o.is_active !== false).map(o => (
+                                                    <option key={o.code} value={o.code}>{o.label}</option>
+                                                ))}
                                             </select>
                                         </Field>
                                     </div>
@@ -5605,7 +6241,7 @@
     function AppShell({ api, profile, onSignOut, theme, onToggleTheme }) {
         const toast = useToast();
 
-        const [data, setData] = useState({ projects: [], planItems: [], alerts: [], products: [], tasks: [], files: [], profiles: [], logs: [] });
+        const [data, setData] = useState({ organizations: [], projects: [], planItems: [], alerts: [], products: [], tasks: [], files: [], profiles: [], logs: [] });
         const [settings, setSettings] = useState(null);
         const [loading, setLoading]   = useState(true);
         const [loadError, setLoadError] = useState('');
@@ -5633,6 +6269,9 @@
         const [productModal, setProductModal] = useState(null);
         const [userModal, setUserModal]       = useState(null);
         const [inviteUserModal, setInviteUserModal] = useState(null);
+        const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+        const [resetPasswordUser, setResetPasswordUser]   = useState(null);
+        const [planItemQuickModal, setPlanItemQuickModal] = useState(null);
         const [fileModal, setFileModal]       = useState(false);
         const [planImportOpen, setPlanImportOpen] = useState(false);
         const [masterPlanImportOpen, setMasterPlanImportOpen] = useState(false);
@@ -5670,7 +6309,8 @@
             const sequence = ++refreshSequence.current;
             try {
                 const fetchAdmin = includeAdmin || activeTab === 'settings';
-                const [projects, planItems, alerts, products, tasks, files, profiles, logs, appSettings] = await Promise.all([
+                const [orgs, projects, planItems, alerts, products, tasks, files, profiles, logs, appSettings] = await Promise.all([
+                    api.organizations ? api.organizations.list() : Promise.resolve([]),
                     canAny(profile,'Projects.View','MainPlan.View','Plans.View','Tasks.View','Tasks.Create','Timeline.View','Calendar.View','Reports.View','Dashboard.View') ? api.projects.list() : Promise.resolve([]),
                     canAny(profile,'MainPlan.View','Plans.View','Tasks.View','Tasks.Create','Timeline.View','Reports.View') ? api.planItems.list() : Promise.resolve([]),
                     canAny(profile,'Dashboard.View','MainPlan.View','Tasks.View') ? api.alerts.list() : Promise.resolve([]),
@@ -5683,6 +6323,10 @@
                 ]);
                 // A slower, older request must never replace a newer snapshot.
                 if (sequence === refreshSequence.current) {
+                    const safeOrgs = sanitizeRows(orgs);
+                    if (safeOrgs && safeOrgs.length > 0) {
+                        setDynamicOrgs(safeOrgs);
+                    }
                     const safeProjects = sanitizeRows(projects);
                     const safePlanItems = sanitizeRows(planItems);
                     const safeAlerts = sanitizeRows(alerts);
@@ -5690,6 +6334,7 @@
                     const safeTasks = sanitizeRows(tasks);
                     const safeFiles = sanitizeRows(files);
                     setData(prev => ({
+                        organizations: safeOrgs || prev.organizations || [],
                         projects: safeProjects,
                         planItems: safePlanItems,
                         alerts: safeAlerts,
@@ -5982,8 +6627,8 @@
                         <div className="flex items-center gap-3 min-w-0">
                             <WamyLogo className="w-10 h-10" />
                             <div className="min-w-0">
-                                <h2 className="text-sm font-bold text-white leading-tight truncate">الندوة WAMY &amp; إمعان</h2>
-                                <span className="text-xs text-blue-400 font-bold">لوحة القيادة 2026</span>
+                                <h2 className="text-sm font-bold text-white leading-tight truncate">الندوة العالمية</h2>
+                                <span className="text-xs text-blue-400 font-bold">إدارة المهام</span>
                             </div>
                         </div>
                         <button onClick={() => setSidebarOpen(false)} className="md:hidden p-2 text-slate-400 hover:text-white" aria-label="إغلاق القائمة">
@@ -6024,9 +6669,14 @@
                                 </span>
                             </div>
                         </div>
-                        <button onClick={onSignOut} className="p-2 text-slate-400 hover:text-rose-400 shrink-0" title="تسجيل الخروج" aria-label="تسجيل الخروج">
-                            <i className="fa-solid fa-arrow-right-from-bracket"></i>
-                        </button>
+                        <div className="flex items-center gap-1 shrink-0">
+                            <button type="button" onClick={() => setChangePasswordOpen(true)} className="p-2 text-slate-400 hover:text-blue-400" title="تغيير كلمة المرور" aria-label="تغيير كلمة المرور">
+                                <i className="fa-solid fa-key"></i>
+                            </button>
+                            <button onClick={onSignOut} className="p-2 text-slate-400 hover:text-rose-400 shrink-0" title="تسجيل الخروج" aria-label="تسجيل الخروج">
+                                <i className="fa-solid fa-arrow-right-from-bracket"></i>
+                            </button>
+                        </div>
                     </div>
                 </aside>
 
@@ -6160,6 +6810,7 @@
                                                           onEditUser={(u) => setUserModal({ initial: u })}
                                                           onDeleteUser={deleteUser}
                                                           onInviteUser={(u) => setInviteUserModal({ initial: u })}
+                                                          onResetPasswordUser={(u) => setResetPasswordUser(u)}
                                                           onEditProject={(p) => setProjectModal({ initial: p })}
                                                           onCreateProject={() => setProjectModal({ initial: null })}
                                                           onSafeDeleteProject={(p) => setSafeDeleteModal(p)}
@@ -6171,6 +6822,8 @@
                                  defaultProjectId={selectedProjectId !== 'all' ? selectedProjectId : undefined}
                                  initialStep={taskModal && taskModal.initialStep} mode={taskModal && taskModal.mode}
                                  data={data} profile={profile} api={api}
+                                 onCreateProject={() => setProjectModal({ initial: null })}
+                                 onCreatePlanItem={(projId) => setPlanItemQuickModal({ projectId: projId })}
                                  onClose={() => setTaskModal(null)} onSubmit={saveTask} busy={busy} />
                 <ProductModal open={!!productModal} initial={productModal && productModal.initial}
                               defaultProjectId={selectedProjectId !== 'all' ? selectedProjectId : undefined}
@@ -6181,6 +6834,13 @@
                            onClose={() => setUserModal(null)} onSubmit={saveUser} busy={busy} />
                 <InviteUserModal open={!!inviteUserModal} initial={inviteUserModal && inviteUserModal.initial}
                                  api={api} onClose={() => setInviteUserModal(null)} onCreated={refresh} toast={toast} />
+                <ChangePasswordModal open={changePasswordOpen} api={api}
+                                     onClose={() => setChangePasswordOpen(false)} toast={toast} />
+                <ResetPasswordModal open={!!resetPasswordUser} user={resetPasswordUser}
+                                    api={api} onClose={() => setResetPasswordUser(null)} toast={toast} />
+                <PlanItemQuickModal open={!!planItemQuickModal} projectId={planItemQuickModal && planItemQuickModal.projectId}
+                                    api={api} onClose={() => setPlanItemQuickModal(null)}
+                                    onCreated={() => refresh(true)} toast={toast} />
                 <PlanImportModal open={planImportOpen} api={api} onClose={() => setPlanImportOpen(false)}
                                  onImported={refresh} toast={toast} />
                 <MasterPlanImportModal open={masterPlanImportOpen} api={api} onClose={() => setMasterPlanImportOpen(false)}

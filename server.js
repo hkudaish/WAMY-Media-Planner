@@ -42,7 +42,8 @@ const PERMISSION_KEYS = [
   'Reports.Export','Reports.ExecutiveView','Reports.FinancialView','Reports.TeamPerformanceView',
   'Files.Upload','Files.Download','Files.Edit','Files.Delete','Files.Approve','Files.MoveToApproved',
   'Calendar.Create','Calendar.Edit','Calendar.Delete','Calendar.ManageSchedule',
-  'Settings.General','Settings.Users','Settings.Roles','Settings.Permissions','Settings.Departments','Settings.Backup','Settings.Security','Settings.Integrations',
+  'Settings.General','Settings.Users','Settings.Roles','Settings.Permissions','Settings.Departments','Settings.Organizations','Settings.Backup','Settings.Security','Settings.Integrations',
+  'Organizations.View','Organizations.Create','Organizations.Edit','Organizations.Activate','Organizations.Deactivate','Organizations.Delete',
   'Backup.View','Backup.Create','Backup.Restore','Backup.Download','Backup.Delete','System.Reset'
 ];
 const ALL_PERMISSIONS = Object.fromEntries(PERMISSION_KEYS.map(key => [key,true]));
@@ -204,6 +205,8 @@ const LEGACY_PERMISSION_MAP = {
   'Tasks.Create':'canCreateTasks','Tasks.Edit':'canCreateTasks','Tasks.Assign':'canCreateTasks','Plans.Import':'canCreateTasks',
   'Files.Approve':'canApproveFiles','Files.MoveToApproved':'canApproveFiles','Settings.Users':'canEditUsers',
   'Settings.Permissions':'canEditUsers','Reports.Export':'canExportReports','Settings.Integrations':'canManageSettings',
+  'Organizations.View':'canManageSettings','Organizations.Create':'canManageSettings','Organizations.Edit':'canManageSettings',
+  'Organizations.Delete':'canManageSettings','Organizations.Activate':'canManageSettings','Organizations.Deactivate':'canManageSettings',
   'AuditLog.View':'Audit.View',
   'Backup.View':'Settings.Backup','Backup.Create':'Settings.Backup','Backup.Restore':'Settings.Backup','Backup.Download':'Settings.Backup','Backup.Delete':'Settings.Backup',
   'Projects.Activate':'Projects.Edit','Projects.Deactivate':'Projects.Edit'
@@ -226,7 +229,8 @@ const ENUMS = {
   productStatus: new Set(['not_started', 'in_progress', 'completed', 'approved', 'cancelled', 'archived']),
   priority: new Set(['low', 'normal', 'high', 'critical']),
   fileFolder: new Set(['proposals', 'approved']),
-  fileStatus: new Set(['draft', 'under_review', 'ready_for_approval', 'approved', 'rejected'])
+  fileStatus: new Set(['draft', 'under_review', 'ready_for_approval', 'approved', 'rejected']),
+  taskMode: new Set(['structured', 'adhoc'])
 };
 
 function invalid(res, message) {
@@ -260,7 +264,7 @@ function validatePatch(name, body, creating = false) {
     name: 200, title: 300, email: 320, position: 200, department: 200, team: 200, code: 60, content: 10000,
     description: 20000, goal: 5000, required_outputs: 10000, target_qty: 500, recurrence: 500, phase_name: 300,
     notes: 20000, size_label: 100, file_type: 200, version: 100,
-    hierarchical_code: 100, legacy_code: 100, plan_track: 200,
+    hierarchical_code: 100, legacy_code: 100, plan_track: 200, classification: 100,
     avatar_url: 2000, drive_url: 2000, drive_view_link: 2000, drive_icon_link: 2000,
     mime_type: 300, drive_file_id: 500, drive_parent_id: 500,
     drive_folder_id: 500, drive_proposals_folder_id: 500, drive_approved_folder_id: 500
@@ -269,14 +273,17 @@ function validatePatch(name, body, creating = false) {
     if (body[key] != null && (typeof body[key] !== 'string' || body[key].length > limit)) return `${key} غير صالح أو طويل جدًا.`;
   }
   const enumChecks = [
-    ['org', ENUMS.org], ['role', ENUMS.role], ['status', name === 'tasks' ? ENUMS.taskStatus : name === 'products' ? ENUMS.productStatus : name === 'files' ? ENUMS.fileStatus : ENUMS.userStatus],
-    ['priority', ENUMS.priority], ['folder', ENUMS.fileFolder]
+    ['role', ENUMS.role], ['status', name === 'tasks' ? ENUMS.taskStatus : name === 'products' ? ENUMS.productStatus : name === 'files' ? ENUMS.fileStatus : ENUMS.userStatus],
+    ['priority', ENUMS.priority], ['folder', ENUMS.fileFolder], ['task_mode', ENUMS.taskMode]
   ];
   for (const [key, values] of enumChecks) {
     if (body[key] != null && !values.has(body[key])) return `${key} يحتوي على قيمة غير مسموحة.`;
   }
+  if (body.org != null) {
+    if (typeof body.org !== 'string' || !/^[a-z0-9_-]{2,50}$/i.test(body.org.trim())) return 'الجهة غير صالحة.';
+  }
   if (name === 'tasks') {
-    for (const key of ['org','priority','status']) {
+    for (const key of ['priority','status']) {
       if (Object.prototype.hasOwnProperty.call(body, key) && body[key] == null) return `${key} حقل إلزامي ولا يقبل قيمة فارغة.`;
     }
   }
@@ -316,7 +323,7 @@ function validatePatch(name, body, creating = false) {
   }
   if (creating && name === 'tasks') {
     if (!String(body.title || '').trim()) return 'اسم المهمة مطلوب.';
-    if (!body.project_id) return 'يجب ربط المهمة بمشروع معتمد.';
+    if (body.task_mode !== 'adhoc' && !body.project_id) return 'يجب ربط المهمة بمشروع معتمد.';
     if (!String(body.required_outputs || '').trim()) return 'المخرجات المطلوبة للمهمة إلزامية.';
     if (!body.scheduled_start_at || !body.scheduled_due_at) return 'تزمين المهمة المعتمد إلزامي.';
     if (!body.assignee_id) return 'يجب إسناد المهمة إلى مسؤول واحد على الأقل.';
@@ -515,11 +522,52 @@ async function validatePlanRows(inputRows) {
 
 const FIELDS = {
   profiles: ['name','email','role','org','position','department','team','data_scope','status','permissions','avatar_url'],
+  projects: ['code','hierarchical_code','name','description','objective','vision','mission','org','manager_id','planned_start','planned_end','status','budget','currency','source_notes','classification'],
   products: ['code','hierarchical_code','legacy_code','project_id','plan_track','name','content','target_qty','org','manager_id','start_date','due_date','status','manual_progress','active_duration_days','recurrence','allow_multiple_tasks','is_active','drive_folder_id','drive_proposals_folder_id','drive_approved_folder_id'],
-  tasks: ['product_id','project_id','plan_item_id','title','description','goal','required_outputs','org','assignee_id','priority','status','progress','planned_start','due_date','scheduled_start_at','scheduled_due_at','actual_completion','active_duration','phase_name','notes','import_key','created_by'],
+  tasks: ['product_id','project_id','plan_item_id','title','description','goal','required_outputs','org','assignee_id','priority','status','progress','planned_start','due_date','scheduled_start_at','scheduled_due_at','actual_completion','active_duration','phase_name','notes','import_key','created_by','task_mode'],
   files: ['name','product_id','folder','size_label','file_type','uploader_id','org','drive_url','version','status','approved_by','approved_at','drive_file_id','drive_view_link','drive_icon_link','mime_type','size_bytes','drive_parent_id'],
+  organizations: ['code','name','name_en','description','is_active'],
   settings: ['drive_client_id','drive_picker_api_key','drive_root_folder_id','drive_root_folder_name','updated_by']
 };
+
+async function getOrCreateAdhocSystemProject(client, orgCode, actorId) {
+  const normalizedOrg = String(orgCode || 'wamy').toLowerCase().trim();
+  const systemKey = `adhoc:${normalizedOrg}`;
+  
+  const existing = await client.query(
+    `select id, code, hierarchical_code, name, org, is_system, system_key
+       from projects
+      where system_key = $1 and deleted_at is null
+      limit 1`,
+    [systemKey]
+  );
+  if (existing.rows[0]) return existing.rows[0];
+
+  const softDeleted = await client.query(
+    `update projects
+        set deleted_at = null, updated_at = now()
+      where system_key = $1
+      returning id, code, hierarchical_code, name, org, is_system, system_key`,
+    [systemKey]
+  );
+  if (softDeleted.rows[0]) return softDeleted.rows[0];
+
+  const orgRow = (await client.query(
+    `select name from organizations where lower(code) = $1 limit 1`,
+    [normalizedOrg]
+  )).rows[0];
+  const orgName = (orgRow && orgRow.name) || (normalizedOrg === 'imaan' ? 'إمعان' : 'الندوة العالمية للشباب الإسلامي');
+  const prjCode = `SYS-ADHOC-${normalizedOrg.toUpperCase()}`;
+  const prjName = `المهام التشغيلية المستقلة - ${orgName}`;
+
+  const inserted = await client.query(
+    `insert into projects (code, hierarchical_code, name, description, org, status, is_system, system_key, created_by)
+     values ($1, $1, $2, 'مشروع نظامي مخصص لاحتواء المهام التشغيلية المستقلة لضمان تكامل القيود وقواعد البيانات', $3, 'active', true, $4, $5)
+     returning id, code, hierarchical_code, name, org, is_system, system_key`,
+    [prjCode, prjName, normalizedOrg, systemKey, actorId]
+  );
+  return inserted.rows[0];
+}
 
 app.get('/api/health/live', (_req, res) => res.json({ ok: true }));
 app.get(['/api/health', '/api/health/ready'], async (_req, res, next) => {
@@ -612,6 +660,35 @@ app.post('/api/auth/logout', requireSession, async (req, res, next) => {
     await client.query('commit');
     res.clearCookie(COOKIE_NAME, { path: '/' });
     res.status(204).end();
+  } catch (error) {
+    await client.query('rollback');
+    next(error);
+  } finally { client.release(); }
+});
+
+app.post('/api/auth/change-password', requireSession, requireActive, async (req, res, next) => {
+  const currentPassword = String(req.body.current_password || req.body.currentPassword || '');
+  const newPassword = String(req.body.new_password || req.body.newPassword || '');
+  if (!currentPassword) return invalid(res, 'كلمة المرور الحالية مطلوبة.');
+  if (newPassword.length < 12 || newPassword.length > 200) {
+    return invalid(res, 'كلمة المرور الجديدة يجب أن تكون بين 12 و200 حرف.');
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    const userRow = (await client.query('select id, password_hash, email from profiles where id=$1 for update', [req.user.id])).rows[0];
+    if (!userRow || !(await bcrypt.compare(currentPassword, userRow.password_hash))) {
+      await client.query('rollback');
+      return res.status(401).json({ code: 'INVALID_CREDENTIALS', message: 'كلمة المرور الحالية غير صحيحة.' });
+    }
+    const newHash = await bcrypt.hash(newPassword, 12);
+    await client.query('update profiles set password_hash=$1, updated_at=now() where id=$2', [newHash, req.user.id]);
+    if (req.sessionToken) {
+      await client.query('delete from sessions where user_id=$1 and token_hash<>$2', [req.user.id, tokenHash(req.sessionToken)]);
+    }
+    await writeAudit(client, req, 'تغيير كلمة المرور', 'AUTH', 'profiles', req.user.id, { email: userRow.email });
+    await client.query('commit');
+    res.json({ success: true, message: 'تم تغيير كلمة المرور بنجاح.' });
   } catch (error) {
     await client.query('rollback');
     next(error);
@@ -812,10 +889,210 @@ app.delete('/api/profiles/:id', requireActive, async (req, res, next) => {
   } finally { client.release(); }
 });
 
+app.post('/api/profiles/:id/reset-password', requireActive, async (req, res, next) => {
+  if (!isAdmin(req.user)) return forbid(res);
+  const targetId = req.params.id;
+  const newPassword = String(req.body.new_password || req.body.newPassword || '');
+  if (newPassword.length < 12 || newPassword.length > 200) {
+    return invalid(res, 'كلمة المرور الجديدة يجب أن تكون بين 12 و200 حرف.');
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    const targetUser = (await client.query('select id, name, email from profiles where id=$1 and deleted_at is null for update', [targetId])).rows[0];
+    if (!targetUser) {
+      await client.query('rollback');
+      return res.status(404).json({ message: 'المستخدم غير موجود.' });
+    }
+    const newHash = await bcrypt.hash(newPassword, 12);
+    await client.query('update profiles set password_hash=$1, updated_at=now() where id=$2', [newHash, targetId]);
+    await client.query('delete from sessions where user_id=$1', [targetId]);
+    await writeAudit(client, req, `إعادة تعيين كلمة مرور المستخدم: ${targetUser.name}`, 'AUTH', 'profiles', targetId, {
+      target_email: targetUser.email,
+      target_name: targetUser.name
+    });
+    await client.query('commit');
+    res.json({ success: true, message: 'تمت إعادة تعيين كلمة المرور بنجاح وإلغاء جميع الجلسات النشطة للمستخدم.' });
+  } catch (error) {
+    await client.query('rollback');
+    next(error);
+  } finally {
+    client.release();
+  }
+});
+
+// -----------------------------------------------------------------------------
+// Organizations Endpoints
+// -----------------------------------------------------------------------------
+app.get('/api/organizations', requireActive, async (req, res, next) => {
+  try {
+    const includeInactive = req.query.include_inactive === 'true' && canAny(req.user, 'Organizations.Edit', 'Settings.General');
+    const { rows } = await pool.query(
+      `select o.*,
+              coalesce(p_cnt.cnt, 0)::int as profiles_count,
+              coalesce(prj_cnt.cnt, 0)::int as projects_count,
+              coalesce(t_cnt.cnt, 0)::int as tasks_count
+         from organizations o
+         left join (
+           select org, count(*) as cnt from profiles where deleted_at is null group by org
+         ) p_cnt on lower(p_cnt.org) = lower(o.code)
+         left join (
+           select org, count(*) as cnt from projects where deleted_at is null and is_system = false group by org
+         ) prj_cnt on lower(prj_cnt.org) = lower(o.code)
+         left join (
+           select org, count(*) as cnt from tasks where deleted_at is null group by org
+         ) t_cnt on lower(t_cnt.org) = lower(o.code)
+        where o.deleted_at is null and ($1::boolean or o.is_active = true)
+        order by o.code`,
+      [includeInactive]
+    );
+    res.json(rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/organizations', requireActive, async (req, res, next) => {
+  if (!can(req.user, 'Organizations.Create')) return forbid(res);
+  const code = String(req.body.code || '').trim().toLowerCase();
+  const name = String(req.body.name || req.body.name_ar || '').trim();
+  const nameAr = String(req.body.name_ar || req.body.name || '').trim();
+  const nameEn = String(req.body.name_en || '').trim() || null;
+  const shortName = String(req.body.short_name || '').trim() || null;
+  const description = String(req.body.description || '').trim() || null;
+  const color = String(req.body.color || '#3b82f6').trim();
+  const isActive = req.body.is_active !== false;
+
+  if (!code || !/^[a-z0-9_-]{2,50}$/.test(code)) {
+    return invalid(res, 'رمز الجهة يجب أن يتكون من 2 إلى 50 حرفًا إنجليزيًا أو أرقام بدون مسافات.');
+  }
+  if (!name || name.length > 200) {
+    return invalid(res, 'اسم الجهة مطلوب وألا يتجاوز 200 حرف.');
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    const { rows } = await client.query(
+      `insert into organizations (code, name, name_ar, name_en, short_name, description, color, is_active, created_by)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       returning *`,
+      [code, name, nameAr, nameEn, shortName, description, color, isActive, req.user.id]
+    );
+    await writeAudit(client, req, `إضافة جهة جديدة: ${name} (${code})`, 'CREATE', 'organizations', rows[0].id, { code, name });
+    await client.query('commit');
+    res.status(201).json(rows[0]);
+  } catch (error) {
+    await client.query('rollback');
+    if (error.code === '23505') return res.status(409).json({ code: 'DUPLICATE_ORG', message: 'رمز أو اسم الجهة مستخدم مسبقًا.' });
+    next(error);
+  } finally {
+    client.release();
+  }
+});
+
+app.patch('/api/organizations/:id', requireActive, async (req, res, next) => {
+  if (!can(req.user, 'Organizations.Edit')) return forbid(res);
+  const allowed = ['name', 'name_ar', 'name_en', 'short_name', 'description', 'color', 'logo_url', 'is_active', 'sort_order'];
+  const query = updateStatement('organizations', req.params.id, req.body, allowed);
+  if (!query) return invalid(res, 'لا توجد حقول صالحة للتحديث.');
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    const before = (await client.query('select * from organizations where id=$1 and deleted_at is null for update', [req.params.id])).rows[0];
+    if (!before) { await client.query('rollback'); return res.status(404).json({ message: 'الجهة غير موجودة.' }); }
+    if (!versionMatches(req, before)) { await client.query('rollback'); return versionConflict(res); }
+    const { rows } = await client.query(query);
+    await writeAudit(client, req, `تعديل بيانات الجهة: ${rows[0].name}`, 'UPDATE', 'organizations', req.params.id, {
+      changed_fields: Object.keys(cleanObject(req.body, allowed))
+    });
+    await client.query('commit');
+    res.json(rows[0]);
+  } catch (error) {
+    await client.query('rollback');
+    if (error.code === '23505') return res.status(409).json({ code: 'DUPLICATE_ORG', message: 'اسم الجهة مستخدم مسبقًا.' });
+    next(error);
+  } finally {
+    client.release();
+  }
+});
+
+app.post('/api/organizations/:id/activate', requireActive, async (req, res, next) => {
+  if (!canAny(req.user, 'Organizations.Activate', 'Organizations.Edit')) return forbid(res);
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    const { rows } = await client.query(`update organizations set is_active=true, updated_at=now() where id=$1 and deleted_at is null returning *`, [req.params.id]);
+    if (!rows[0]) { await client.query('rollback'); return res.status(404).json({ message: 'الجهة غير موجودة.' }); }
+    await writeAudit(client, req, `تفعيل الجهة: ${rows[0].name}`, 'UPDATE', 'organizations', req.params.id);
+    await client.query('commit');
+    res.json(rows[0]);
+  } catch (error) { await client.query('rollback'); next(error); } finally { client.release(); }
+});
+
+app.post('/api/organizations/:id/deactivate', requireActive, async (req, res, next) => {
+  if (!canAny(req.user, 'Organizations.Deactivate', 'Organizations.Edit')) return forbid(res);
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    const { rows } = await client.query(`update organizations set is_active=false, updated_at=now() where id=$1 and deleted_at is null returning *`, [req.params.id]);
+    if (!rows[0]) { await client.query('rollback'); return res.status(404).json({ message: 'الجهة غير موجودة.' }); }
+    await writeAudit(client, req, `تعطيل الجهة: ${rows[0].name}`, 'UPDATE', 'organizations', req.params.id);
+    await client.query('commit');
+    res.json(rows[0]);
+  } catch (error) { await client.query('rollback'); next(error); } finally { client.release(); }
+});
+
+app.delete('/api/organizations/:id', requireActive, async (req, res, next) => {
+  if (!can(req.user, 'Organizations.Delete') && !isAdmin(req.user)) return forbid(res);
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    const org = (await client.query('select * from organizations where id=$1 and deleted_at is null for update', [req.params.id])).rows[0];
+    if (!org) { await client.query('rollback'); return res.status(404).json({ message: 'الجهة غير موجودة.' }); }
+    
+    const [pRes, prjRes, tRes, prdRes, fRes] = await Promise.all([
+      client.query('select count(*)::int as cnt from profiles where org=$1 and deleted_at is null', [org.code]),
+      client.query('select count(*)::int as cnt from projects where org=$1 and deleted_at is null and is_system=false', [org.code]),
+      client.query('select count(*)::int as cnt from tasks where org=$1 and deleted_at is null', [org.code]),
+      client.query('select count(*)::int as cnt from products where org=$1 and deleted_at is null', [org.code]),
+      client.query('select count(*)::int as cnt from files where org=$1 and deleted_at is null', [org.code])
+    ]);
+    const deps = {
+      users: pRes.rows[0].cnt,
+      projects: prjRes.rows[0].cnt,
+      tasks: tRes.rows[0].cnt,
+      products: prdRes.rows[0].cnt,
+      files: fRes.rows[0].cnt
+    };
+    const totalDeps = deps.users + deps.projects + deps.tasks + deps.products + deps.files;
+    if (totalDeps > 0) {
+      await client.query('rollback');
+      return res.status(409).json({
+        code: 'ORG_HAS_DEPENDENCIES',
+        message: 'لا يمكن حذف هذه الجهة لوجود سجلات ومستخدمين مرتبطين بها. يمكنك تعطيل الجهة بدلاً من الحذف.',
+        dependencies: deps,
+        can_deactivate: true
+      });
+    }
+
+    const { rows } = await client.query('update organizations set deleted_at=now(), is_active=false where id=$1 returning id, name, code', [req.params.id]);
+    await writeAudit(client, req, `حذف جهة: ${org.name} (${org.code})`, 'DELETE', 'organizations', req.params.id);
+    await client.query('commit');
+    res.json({ success: true, deleted: rows[0] });
+  } catch (error) {
+    await client.query('rollback');
+    next(error);
+  } finally {
+    client.release();
+  }
+});
+
 app.get('/api/projects', requireActive, async (req, res, next) => {
   if (!canAny(req.user,'Projects.View','MainPlan.View','Plans.View','Tasks.View','Tasks.Create','Timeline.View','Calendar.View','Reports.View','Dashboard.View')) return forbid(res);
   try {
     const privileged = hasAllData(req.user);
+    const includeSystem = req.query.include_system === 'true';
     const { rows } = await pool.query(
       `select p.*,
               coalesce(plans.cnt, 0)::int as plans_count,
@@ -847,11 +1124,13 @@ app.get('/api/projects', requireActive, async (req, res, next) => {
            select project_id, count(*) as cnt, round(avg(progress))::int as progress
            from tasks where deleted_at is null group by project_id
          ) tasks on tasks.project_id = p.id
-        where p.deleted_at is null and ($1::boolean or p.manager_id=$3
+        where p.deleted_at is null
+          and (p.is_system = false or $5::boolean)
+          and ($1::boolean or p.manager_id=$3
           or ($4='my_project' and p.manager_id=$3)
           or ($4 in ('my_team','my_department') and p.org=$2))
         order by coalesce(p.hierarchical_code, p.code)`,
-      [privileged, req.user.org, req.user.id, req.user.data_scope || 'my_data']
+      [privileged, req.user.org, req.user.id, req.user.data_scope || 'my_data', includeSystem]
     );
     res.json(rows);
   } catch (error) { next(error); }
@@ -873,17 +1152,17 @@ app.post('/api/projects', requireActive, async (req, res, next) => {
   const client = await pool.connect();
   try {
     await client.query('begin');
-    const countResult = await client.query('select count(*)::int as cnt from projects');
+    const countResult = await client.query('select count(*)::int as cnt from projects where is_system = false');
     const autoHCode = `PRJ-${String((countResult.rows[0].cnt || 0) + 1).padStart(3, '0')}`;
     const hierarchicalCode = String(req.body.hierarchical_code || '').trim() || (code.startsWith('PRJ-') ? code : autoHCode);
 
     const { rows } = await client.query(
-      `insert into projects(code,hierarchical_code,name,description,objective,vision,mission,org,manager_id,planned_start,planned_end,status,budget,currency,source_notes,created_by)
-       values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) returning *`,
+      `insert into projects(code,hierarchical_code,name,description,objective,vision,mission,org,manager_id,planned_start,planned_end,status,budget,currency,source_notes,classification,created_by)
+       values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) returning *`,
       [code,hierarchicalCode,name,req.body.description || null,req.body.objective || null,req.body.vision || null,req.body.mission || null,
-       req.body.org === 'imaan' ? 'imaan' : 'wamy',req.body.manager_id || null,req.body.planned_start || null,req.body.planned_end || null,
+       req.body.org || 'wamy',req.body.manager_id || null,req.body.planned_start || null,req.body.planned_end || null,
        ['planning','active','on_hold','completed','cancelled'].includes(req.body.status) ? req.body.status : 'planning',
-       req.body.budget || null,req.body.currency || null,req.body.source_notes || null,req.user.id]
+       req.body.budget || null,req.body.currency || null,req.body.source_notes || null,req.body.classification || null,req.user.id]
     );
     await writeAudit(client, req, 'إنشاء مشروع وخطة رئيسية', 'CREATE', 'projects', rows[0].id, { code, hierarchical_code: hierarchicalCode });
     await client.query('commit');
@@ -897,6 +1176,10 @@ app.post('/api/projects', requireActive, async (req, res, next) => {
 
 app.delete('/api/projects/:id', requireActive, async (req, res, next) => {
   if (!can(req.user, 'Projects.Delete')) return forbid(res);
+  const checkProj = (await pool.query('select is_system from projects where id=$1 and deleted_at is null', [req.params.id])).rows[0];
+  if (checkProj && checkProj.is_system) {
+    return res.status(400).json({ code: 'SYSTEM_PROJECT_PROTECTED', message: 'لا يمكن حذف المشاريع النظامية للمهام المستقلة.' });
+  }
   const force = req.query.force === 'true' || (req.body && req.body.force === true);
   const deps = await projectHierarchyIO.getProjectDependencies(req.params.id, pool);
   const hasDependencies = deps.tasks > 0 || deps.products > 0 || deps.plans > 0 || deps.files > 0;
@@ -914,10 +1197,10 @@ app.delete('/api/projects/:id', requireActive, async (req, res, next) => {
     await client.query('update tasks set deleted_at=coalesce(deleted_at,now()) where project_id=$1 and deleted_at is null', [req.params.id]);
     await client.query('update products set deleted_at=coalesce(deleted_at,now()) where project_id=$1 and deleted_at is null', [req.params.id]);
     await client.query('update master_plan_items set deleted_at=coalesce(deleted_at,now()) where project_id=$1 and deleted_at is null', [req.params.id]);
-    const { rows } = await client.query('update projects set deleted_at=now() where id=$1 and deleted_at is null returning id, name, code', [req.params.id]);
+    const { rows } = await client.query('update projects set deleted_at=now() where id=$1 and deleted_at is null and is_system=false returning id, name, code', [req.params.id]);
     if (!rows.length) {
       await client.query('rollback');
-      return res.status(404).json({ message: 'المشروع غير موجود.' });
+      return res.status(404).json({ message: 'المشروع غير موجود أو أنه مشروع نظامي محمي.' });
     }
     await writeAudit(client, req, 'حذف مشروع', 'DELETE', 'projects', req.params.id, { name: rows[0].name, code: rows[0].code, deleted_dependencies: deps });
     await client.query('commit');
@@ -930,10 +1213,14 @@ app.delete('/api/projects/:id', requireActive, async (req, res, next) => {
 
 app.post('/api/projects/:id/archive', requireActive, async (req, res, next) => {
   if (!can(req.user, 'Projects.Edit')) return forbid(res);
+  const checkProj = (await pool.query('select is_system from projects where id=$1 and deleted_at is null', [req.params.id])).rows[0];
+  if (checkProj && checkProj.is_system) {
+    return res.status(400).json({ code: 'SYSTEM_PROJECT_PROTECTED', message: 'لا يمكن أرشفة أو تعديل المشاريع النظامية للمهام المستقلة.' });
+  }
   const client = await pool.connect();
   try {
     await client.query('begin');
-    const { rows } = await client.query(`update projects set status='cancelled', updated_at=now() where id=$1 and deleted_at is null returning *`, [req.params.id]);
+    const { rows } = await client.query(`update projects set status='cancelled', updated_at=now() where id=$1 and deleted_at is null and is_system=false returning *`, [req.params.id]);
     if (!rows.length) {
       await client.query('rollback');
       return res.status(404).json({ message: 'المشروع غير موجود.' });
@@ -949,10 +1236,14 @@ app.post('/api/projects/:id/archive', requireActive, async (req, res, next) => {
 
 app.post('/api/projects/:id/activate', requireActive, async (req, res, next) => {
   if (!canAny(req.user, 'Projects.Activate', 'Projects.Edit')) return forbid(res);
+  const checkProj = (await pool.query('select is_system from projects where id=$1 and deleted_at is null', [req.params.id])).rows[0];
+  if (checkProj && checkProj.is_system) {
+    return res.status(400).json({ code: 'SYSTEM_PROJECT_PROTECTED', message: 'المشاريع النظامية نشطة دائمًا ولا يمكن تغيير حالتها يدويًا.' });
+  }
   const client = await pool.connect();
   try {
     await client.query('begin');
-    const { rows } = await client.query(`update projects set status='active', updated_at=now() where id=$1 and deleted_at is null returning *`, [req.params.id]);
+    const { rows } = await client.query(`update projects set status='active', updated_at=now() where id=$1 and deleted_at is null and is_system=false returning *`, [req.params.id]);
     if (!rows.length) {
       await client.query('rollback');
       return res.status(404).json({ message: 'المشروع غير موجود.' });
@@ -968,10 +1259,14 @@ app.post('/api/projects/:id/activate', requireActive, async (req, res, next) => 
 
 app.post('/api/projects/:id/deactivate', requireActive, async (req, res, next) => {
   if (!canAny(req.user, 'Projects.Deactivate', 'Projects.Edit', 'Projects.Archive')) return forbid(res);
+  const checkProj = (await pool.query('select is_system from projects where id=$1 and deleted_at is null', [req.params.id])).rows[0];
+  if (checkProj && checkProj.is_system) {
+    return res.status(400).json({ code: 'SYSTEM_PROJECT_PROTECTED', message: 'لا يمكن تعطيل المشاريع النظامية للمهام المستقلة.' });
+  }
   const client = await pool.connect();
   try {
     await client.query('begin');
-    const { rows } = await client.query(`update projects set status='on_hold', updated_at=now() where id=$1 and deleted_at is null returning *`, [req.params.id]);
+    const { rows } = await client.query(`update projects set status='on_hold', updated_at=now() where id=$1 and deleted_at is null and is_system=false returning *`, [req.params.id]);
     if (!rows.length) {
       await client.query('rollback');
       return res.status(404).json({ message: 'المشروع غير موجود.' });
@@ -987,7 +1282,7 @@ app.post('/api/projects/:id/deactivate', requireActive, async (req, res, next) =
 
 app.patch('/api/projects/:id', requireActive, async (req, res, next) => {
   if (!can(req.user,'Projects.Edit')) return forbid(res);
-  const allowed = ['code','hierarchical_code','name','description','objective','vision','mission','org','manager_id','planned_start','planned_end','status','budget','currency','source_notes'];
+  const allowed = ['code','hierarchical_code','name','description','objective','vision','mission','org','manager_id','planned_start','planned_end','status','budget','currency','source_notes','classification'];
   const query = updateStatement('projects', req.params.id, req.body, allowed);
   if (!query) return invalid(res, 'لا توجد حقول صالحة للتحديث.');
   const client = await pool.connect();
@@ -995,6 +1290,10 @@ app.patch('/api/projects/:id', requireActive, async (req, res, next) => {
     await client.query('begin');
     const before = (await client.query('select * from projects where id=$1 and deleted_at is null for update', [req.params.id])).rows[0];
     if (!before) { await client.query('rollback'); return res.status(404).json({ message: 'المشروع غير موجود.' }); }
+    if (before.is_system) {
+      await client.query('rollback');
+      return res.status(400).json({ code: 'SYSTEM_PROJECT_PROTECTED', message: 'لا يمكن تعديل المشاريع النظامية للمهام المستقلة.' });
+    }
     if (!versionMatches(req, before)) { await client.query('rollback'); return versionConflict(res); }
     const rows = (await client.query(query)).rows;
     await writeAudit(client, req, 'تحديث الخطة الرئيسية', 'UPDATE', 'projects', req.params.id, { changed_fields: Object.keys(cleanObject(req.body, allowed)) });
@@ -1410,7 +1709,7 @@ function crudRoutes(name, table, orderBy, authorizeCreate, authorizeUpdate, auth
       if (name === 'products') {
         if (!req.body.project_id) {
           const defaultProject = (await client.query(
-            `select id from projects where deleted_at is null and status in ('active','planning') order by (case when code in ('STR-COMM-01','PRJ-001') then 0 else 1 end), created_at limit 1`
+            `select id from projects where deleted_at is null and is_system = false and status in ('active','planning') order by (case when code in ('STR-COMM-01','PRJ-001') then 0 else 1 end), created_at limit 1`
           )).rows[0];
           if (defaultProject) req.body.project_id = defaultProject.id;
         }
@@ -1422,6 +1721,18 @@ function crudRoutes(name, table, orderBy, authorizeCreate, authorizeUpdate, auth
         }
         if (!req.body.legacy_code && req.body.code) {
           req.body.legacy_code = req.body.code;
+        }
+      }
+      if (name === 'tasks') {
+        if (req.body.task_mode === 'adhoc') {
+          const orgCode = req.body.org || req.user.org || 'wamy';
+          const sysProj = await getOrCreateAdhocSystemProject(client, orgCode, req.user.id);
+          req.body.project_id = sysProj.id;
+          req.body.task_mode = 'adhoc';
+          req.body.plan_item_id = null;
+          req.body.product_id = null;
+        } else {
+          req.body.task_mode = 'structured';
         }
       }
       if (name === 'tasks' && assigneeIds && assigneeIds.length) {
@@ -1508,7 +1819,14 @@ function crudRoutes(name, table, orderBy, authorizeCreate, authorizeUpdate, auth
         await client.query('rollback');
         return versionConflict(res);
       }
-      const { rows } = await client.query(query);
+      if (name === 'tasks' && patch.project_id && before && before.project_id && patch.project_id !== before.project_id) {
+        const targetProj = (await client.query('select is_system, org, name from projects where id=$1 and deleted_at is null', [patch.project_id])).rows[0];
+        if (targetProj && !targetProj.is_system) {
+          patch.task_mode = 'structured';
+        }
+      }
+      const finalQuery = updateStatement(table, req.params.id, patch, allowed);
+      const { rows } = await client.query(finalQuery || query);
       if (!rows.length) {
         await client.query('rollback');
         return res.status(404).json({ message: 'العنصر غير موجود.' });
@@ -1535,7 +1853,10 @@ function crudRoutes(name, table, orderBy, authorizeCreate, authorizeUpdate, auth
         );
       }
       const changedFields = Object.keys(cleanObject(patch, allowed));
-      await writeAudit(client, req, `تحديث ${name}`, patch.status === 'approved' ? 'APPROVAL' : 'UPDATE', table, rows[0].id, {
+      const auditAction = name === 'tasks' && patch.project_id && before && before.project_id && patch.project_id !== before.project_id
+        ? 'ربط مهمة بمشروع معتمد'
+        : patch.status === 'approved' ? 'APPROVAL' : 'UPDATE';
+      await writeAudit(client, req, auditAction === 'APPROVAL' || auditAction === 'UPDATE' ? `تحديث ${name}` : auditAction, patch.status === 'approved' ? 'APPROVAL' : 'UPDATE', table, rows[0].id, {
         changed_fields: changedFields,
         before: Object.fromEntries(changedFields.map(key => [key, before && before[key]])),
         after: Object.fromEntries(changedFields.map(key => [key, rows[0][key]]))
@@ -1601,7 +1922,7 @@ async function normalizeTaskPlanLink(req) {
     const proj = (await pool.query('select id, org from projects where id=$1 and deleted_at is null', [req.body.project_id])).rows[0];
     if (!proj) return false;
     if (!hasAllData(req.user) && !isPrivileged && proj.org !== req.user.org) return false;
-    if (!isPrivileged || !req.body.org || !ENUMS.org.has(req.body.org)) {
+    if (!isPrivileged || !req.body.org) {
       req.body.org = proj.org;
     }
   }
@@ -1613,7 +1934,7 @@ async function normalizeTaskPlanLink(req) {
     if (!item || (req.body.project_id && req.body.project_id !== item.project_id)) return false;
     if (!hasAllData(req.user) && !isPrivileged && item.org !== req.user.org) return false;
     req.body.project_id = item.project_id;
-    if (!isPrivileged || !req.body.org || !ENUMS.org.has(req.body.org)) {
+    if (!isPrivileged || !req.body.org) {
       req.body.org = item.org;
     }
   }
