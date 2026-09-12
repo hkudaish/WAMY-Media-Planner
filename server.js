@@ -4384,6 +4384,12 @@ app.post('/api/chat/conversations/:id/messages', requireActive, async (req, res,
   try {
     await client.query('begin');
 
+    const convExists = (await client.query(`select id, type, task_id, project_id from chat_conversations where id = $1`, [id])).rows[0];
+    if (!convExists) {
+      await client.query('rollback');
+      return notFound(res, 'المحادثة غير موجودة.');
+    }
+
     const isParticipant = (await client.query(
       `select 1 from chat_participants where conversation_id = $1 and user_id = $2`, [id, req.user.id]
     )).rowCount > 0;
@@ -4397,10 +4403,11 @@ app.post('/api/chat/conversations/:id/messages', requireActive, async (req, res,
       );
     }
 
+    const validReplyId = (reply_to_message_id && /^[0-9a-f-]{36}$/i.test(reply_to_message_id)) ? reply_to_message_id : null;
     const { rows } = await client.query(
       `insert into chat_messages (conversation_id, sender_id, message, reply_to_message_id, attachments)
        values ($1, $2, $3, $4, $5) returning *`,
-      [id, req.user.id, messageText, reply_to_message_id || null, JSON.stringify(attachments || [])]
+      [id, req.user.id, messageText, validReplyId, JSON.stringify(attachments || [])]
     );
     const createdMsg = rows[0];
 
@@ -4433,35 +4440,40 @@ app.post('/api/chat/conversations/:id/messages', requireActive, async (req, res,
 
     const savedRefs = [];
     for (const ref of refsToInsert) {
+      if (!ref.reference_id || !/^[0-9a-f-]{36}$/i.test(ref.reference_id)) continue;
       let refTitle = ref.reference_title || null;
       let metadata = ref.metadata || {};
 
-      if (!refTitle) {
-        if (ref.reference_type === 'TASK') {
-          const tRow = (await client.query(`select title, status, due_date, scheduled_due_at from tasks where id = $1`, [ref.reference_id])).rows[0];
-          if (tRow) {
-            refTitle = tRow.title;
-            const isDelayed = tRow.scheduled_due_at ? new Date(tRow.scheduled_due_at) < new Date() : (tRow.due_date ? new Date(tRow.due_date) < new Date() : false);
-            metadata = { status: tRow.status, due_date: tRow.due_date, is_delayed: isDelayed };
+      try {
+        if (!refTitle) {
+          if (ref.reference_type === 'TASK') {
+            const tRow = (await client.query(`select title, status, due_date, scheduled_due_at from tasks where id = $1`, [ref.reference_id])).rows[0];
+            if (tRow) {
+              refTitle = tRow.title;
+              const isDelayed = tRow.scheduled_due_at ? new Date(tRow.scheduled_due_at) < new Date() : (tRow.due_date ? new Date(tRow.due_date) < new Date() : false);
+              metadata = { status: tRow.status, due_date: tRow.due_date, is_delayed: isDelayed };
+            }
+          } else if (ref.reference_type === 'PROCEDURE') {
+            const pRow = (await client.query(`select title, status from execution_procedures where id = $1`, [ref.reference_id])).rows[0];
+            if (pRow) { refTitle = pRow.title; metadata = { status: pRow.status }; }
+          } else if (ref.reference_type === 'SUB_PROCEDURE') {
+            const spRow = (await client.query(`select title, status from execution_sub_procedures where id = $1`, [ref.reference_id])).rows[0];
+            if (spRow) { refTitle = spRow.title; metadata = { status: spRow.status }; }
+          } else if (ref.reference_type === 'USER') {
+            const uRow = (await client.query(`select name from profiles where id = $1`, [ref.reference_id])).rows[0];
+            if (uRow) refTitle = uRow.name;
           }
-        } else if (ref.reference_type === 'PROCEDURE') {
-          const pRow = (await client.query(`select title, status from execution_procedures where id = $1`, [ref.reference_id])).rows[0];
-          if (pRow) { refTitle = pRow.title; metadata = { status: pRow.status }; }
-        } else if (ref.reference_type === 'SUB_PROCEDURE') {
-          const spRow = (await client.query(`select title, status from execution_sub_procedures where id = $1`, [ref.reference_id])).rows[0];
-          if (spRow) { refTitle = spRow.title; metadata = { status: spRow.status }; }
-        } else if (ref.reference_type === 'USER') {
-          const uRow = (await client.query(`select name from profiles where id = $1`, [ref.reference_id])).rows[0];
-          if (uRow) refTitle = uRow.name;
         }
-      }
 
-      const refInsert = (await client.query(
-        `insert into chat_message_references (message_id, reference_type, reference_id, reference_title, metadata)
-         values ($1, $2, $3, $4, $5) returning *`,
-        [createdMsg.id, ref.reference_type, ref.reference_id, refTitle, JSON.stringify(metadata)]
-      )).rows[0];
-      savedRefs.push(refInsert);
+        const refInsert = (await client.query(
+          `insert into chat_message_references (message_id, reference_type, reference_id, reference_title, metadata)
+           values ($1, $2, $3, $4, $5) returning *`,
+          [createdMsg.id, ref.reference_type, ref.reference_id, refTitle, JSON.stringify(metadata)]
+        )).rows[0];
+        if (refInsert) savedRefs.push(refInsert);
+      } catch (refErr) {
+        console.warn('Failed to insert reference record:', refErr.message);
+      }
     }
 
     await client.query('commit');
