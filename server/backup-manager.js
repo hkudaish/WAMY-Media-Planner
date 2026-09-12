@@ -10,7 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const BACKUPS_DIR = path.resolve(__dirname, '../backups');
+const BACKUPS_DIR = process.env.BACKUP_DIR || path.resolve(__dirname, '../backups');
 
 // Ensure backups directory exists
 if (!fs.existsSync(BACKUPS_DIR)) {
@@ -217,7 +217,6 @@ async function restoreBackup(backupId, { pool, user = null }) {
 
   try {
     await client.query('BEGIN');
-    await client.query("SET LOCAL session_replication_role = 'replica'");
     await client.query("SET LOCAL app.allow_audit_mutation = 'on'");
 
     // 1. Clear tables in reverse hierarchical order
@@ -337,7 +336,6 @@ async function resetProjectHierarchy({ pool, user = null, createBackupFirst = tr
 
   try {
     await client.query('BEGIN');
-    await client.query("SET LOCAL session_replication_role = 'replica'");
     await client.query("SET LOCAL app.allow_audit_mutation = 'on'");
 
     const wipedCounts = {};
