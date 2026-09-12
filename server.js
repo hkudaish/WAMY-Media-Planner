@@ -2527,8 +2527,13 @@ app.patch('/api/settings', requireActive, async (req, res, next) => {
 });
 
 const frontendDir = IS_PRODUCTION ? path.join(__dirname, 'dist') : __dirname;
-if (IS_PRODUCTION) app.use('/assets', express.static(path.join(frontendDir, 'assets'), { immutable: true, maxAge: '1y' }));
-app.get('/', (_req, res) => res.sendFile(path.join(frontendDir, IS_PRODUCTION ? 'index.html' : 'code_artifact.html')));
+if (IS_PRODUCTION) app.use('/assets', express.static(path.join(frontendDir, 'assets'), { maxAge: '1h' }));
+app.get('/', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.sendFile(path.join(frontendDir, IS_PRODUCTION ? 'index.html' : 'code_artifact.html'));
+});
 if (!IS_PRODUCTION) app.get('/code_artifact.html', (_req, res) => res.sendFile(path.join(__dirname, 'code_artifact.html')));
 
 app.use((error, _req, res, _next) => {

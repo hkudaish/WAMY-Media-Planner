@@ -217,8 +217,8 @@
         rose:    { dot: 'bg-rose-500',    text: 'text-rose-300',    chip: 'bg-rose-950 text-rose-300 border-rose-500/40',       bar: 'bg-rose-500' }
     };
     const ORGS = {
-        wamy:  { code: 'wamy',  label: 'الندوة WAMY', short: 'الندوة', accent: 'blue',    ...ORG_ACCENTS.blue },
-        imaan: { code: 'imaan', label: 'إمعان',        short: 'إمعان',  accent: 'emerald', ...ORG_ACCENTS.emerald }
+        wamy:  { code: 'wamy',  label: 'الندوة WAMY', short: 'الندوة', accent: 'blue',    is_active: true, ...ORG_ACCENTS.blue },
+        imaan: { code: 'imaan', label: 'إمعان',        short: 'إمعان',  accent: 'emerald', is_active: true, ...ORG_ACCENTS.emerald }
     };
     let DYNAMIC_ORGS_MAP = { ...ORGS };
     const setDynamicOrgs = (orgsList) => {
@@ -231,6 +231,7 @@
                 label: o.name,
                 short: o.short_name || o.name,
                 accent: o.accent_color || 'blue',
+                is_active: o.is_active === true || (o.is_active !== false && o.is_active !== 'false'),
                 ...acc
             };
         });
@@ -459,7 +460,11 @@
             return payload;
         };
         const resource = (name) => ({
-            list:   () => request('/' + name),
+            list:   (params) => {
+                if (!params) return request('/' + name);
+                const q = new URLSearchParams(Object.entries(params).filter(([_, v]) => v != null && v !== '' && v !== 'all')).toString();
+                return request('/' + name + (q ? '?' + q : ''));
+            },
             create: (row) => request('/' + name, { method: 'POST', body: JSON.stringify(row) }),
             update: (id, patch, updatedAt) => request('/' + name + '/' + encodeURIComponent(id), {
                 method: 'PATCH', body: JSON.stringify(patch),
@@ -6282,7 +6287,7 @@
             try {
                 const fetchAdmin = includeAdmin || activeTab === 'settings';
                 const [orgs, projects, planItems, alerts, products, tasks, files, profiles, logs, appSettings] = await Promise.all([
-                    api.organizations ? api.organizations.list() : Promise.resolve([]),
+                    api.organizations ? api.organizations.list(fetchAdmin ? { include_inactive: 'true' } : undefined) : Promise.resolve([]),
                     canAny(profile,'Projects.View','MainPlan.View','Plans.View','Tasks.View','Tasks.Create','Timeline.View','Calendar.View','Reports.View','Dashboard.View') ? api.projects.list() : Promise.resolve([]),
                     canAny(profile,'MainPlan.View','Plans.View','Tasks.View','Tasks.Create','Timeline.View','Reports.View') ? api.planItems.list() : Promise.resolve([]),
                     canAny(profile,'Dashboard.View','MainPlan.View','Tasks.View') ? api.alerts.list() : Promise.resolve([]),
@@ -6371,8 +6376,8 @@
         const activeOrgs = useMemo(() => {
             const orgs = (data.organizations && data.organizations.length > 0)
                 ? data.organizations
-                : ORG_LIST;
-            const active = orgs.filter(o => o.is_active !== false);
+                : Object.values(DYNAMIC_ORGS_MAP || ORGS);
+            const active = orgs.filter(o => o.is_active === true || (o.is_active !== false && o.is_active !== 'false'));
             if (!profile) return active;
             const isFull = profile.role === 'admin' || (profile.permissions && profile.permissions['Organizations.View']);
             if (isFull) return active;

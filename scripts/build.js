@@ -54,12 +54,13 @@ const outputDir = path.join(root, 'dist');
   ]).process('@tailwind base;\n@tailwind components;\n@tailwind utilities;', { from: undefined });
   await fs.writeFile(path.join(outputDir, 'assets', 'app.css'), css.css);
 
+  const buildVersion = Date.now().toString(36);
   let productionHtml = html
     .replace(/\s*<!-- Tailwind \(Play CDN\)[\s\S]*?<\/script>\s*/, '\n')
     .replace(/\s*<script>\s*tailwind\.config\s*=\s*\{[\s\S]*?<\/script>\s*/, '\n')
     .replace(/\s*<!-- Exact pinned versions:[\s\S]*?<script src="https:\/\/unpkg\.com\/@babel\/standalone[^>]*><\/script>\s*/, '\n')
-    .replace(match[0], '<script defer src="/assets/app.js"></script>')
-    .replace('</head>', '    <link rel="stylesheet" href="/assets/app.css">\n</head>');
+    .replace(match[0], `<script defer src="/assets/app.js?v=${buildVersion}"></script>`)
+    .replace('</head>', `    <link rel="stylesheet" href="/assets/app.css?v=${buildVersion}">\n</head>`);
   await fs.writeFile(path.join(outputDir, 'index.html'), productionHtml);
   console.log('Production frontend built in dist/.');
 })().catch(error => {
