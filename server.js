@@ -4117,8 +4117,30 @@ app.get('/api/tasks/:id/assignment-history', requireActive, async (req, res, nex
 // 1. GET /api/chat/conversations - List Conversations for User
 app.get('/api/chat/conversations', requireActive, async (req, res, next) => {
   try {
+    const { task_id, project_id, type, conversation_type } = req.query;
+    const filterType = (type || conversation_type || '').toUpperCase();
+    const conditions = ['cp.user_id = $1'];
+    const params = [req.user.id];
+
+    if (task_id && /^[0-9a-f-]{36}$/i.test(task_id)) {
+      params.push(task_id);
+      conditions.push(`c.task_id = $${params.length}`);
+    }
+    if (project_id && /^[0-9a-f-]{36}$/i.test(project_id)) {
+      params.push(project_id);
+      conditions.push(`c.project_id = $${params.length}`);
+    }
+    if (filterType === 'TASK' || filterType === 'TASK_LINKED') {
+      conditions.push(`c.type = 'TASK'`);
+    } else if (filterType === 'DIRECT') {
+      conditions.push(`c.type = 'DIRECT'`);
+    } else if (filterType === 'PROJECT_TEAM') {
+      conditions.push(`c.type = 'PROJECT_TEAM'`);
+    }
+
     const { rows } = await pool.query(
       `select c.*,
+              case when c.type = 'TASK' then 'task_linked' when c.type = 'DIRECT' then 'direct' else lower(c.type) end as conversation_type,
               t.title as task_title, t.status as task_status,
               p.name as project_name,
               cp.last_read_at,
@@ -4157,11 +4179,12 @@ app.get('/api/chat/conversations', requireActive, async (req, res, next) => {
                  where part.conversation_id = c.id
               ) as participants
          from chat_conversations c
-         join chat_participants cp on cp.conversation_id = c.id and cp.user_id = $1
+         join chat_participants cp on cp.conversation_id = c.id
          left join tasks t on t.id = c.task_id and t.deleted_at is null
          left join projects p on p.id = c.project_id and p.deleted_at is null
+        where ${conditions.join(' and ')}
         order by c.updated_at desc`,
-      [req.user.id]
+      params
     );
     res.json(rows);
   } catch (err) { next(err); }
@@ -4169,8 +4192,9 @@ app.get('/api/chat/conversations', requireActive, async (req, res, next) => {
 
 // 2. POST /api/chat/conversations - Create or Get Conversation
 app.post('/api/chat/conversations', requireActive, async (req, res, next) => {
-  const { type, participant_ids, task_id, project_id, title } = req.body;
-  const convType = ['DIRECT', 'TASK', 'PROJECT_TEAM'].includes(type) ? type : 'DIRECT';
+  const { type, conversation_type, participant_ids, task_id, project_id, title } = req.body;
+  const rawType = (type || conversation_type || (task_id ? 'TASK' : 'DIRECT')).toUpperCase();
+  const convType = (rawType === 'TASK' || rawType === 'TASK_LINKED') ? 'TASK' : (rawType === 'PROJECT_TEAM' ? 'PROJECT_TEAM' : 'DIRECT');
 
   const client = await pool.connect();
   try {

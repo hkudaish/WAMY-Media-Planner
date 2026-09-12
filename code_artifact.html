@@ -7420,18 +7420,20 @@
         const [loading, setLoading] = useState(true);
         const [sending, setSending] = useState(false);
         const [text, setText] = useState('');
+        const [error, setError] = useState('');
         const messagesEndRef = useRef(null);
 
         const loadChat = useCallback(async () => {
             if (!task || !task.id || !api || !api.chat) return;
             try {
                 const convs = await api.chat.getConversations({ task_id: task.id });
-                let currentConv = convs && convs[0];
+                let currentConv = convs && convs.find(c => c.task_id === task.id || c.type === 'TASK');
                 if (!currentConv) {
                     currentConv = await api.chat.createConversation({
+                        type: 'TASK',
                         conversation_type: 'task_linked',
                         task_id: task.id,
-                        title: `مناقشة: ${task.title}`
+                        title: `مناقشة المهمة: ${task.title}`
                     });
                 }
                 setConversation(currentConv);
@@ -7440,8 +7442,10 @@
                     setMessages(msgs || []);
                     api.chat.markAsRead(currentConv.id).catch(() => {});
                 }
+                setError('');
             } catch (err) {
                 console.error('Failed to load task chat:', err);
+                setError(err.message || 'تعذر تحميل قناة المناقشة');
             } finally {
                 setLoading(false);
             }
@@ -7460,15 +7464,27 @@
         }, [messages]);
 
         const handleSend = async () => {
-            if (!text.trim() || !conversation) return;
+            if (!text.trim()) return;
             const contentText = text.trim();
-            setText('');
             setSending(true);
             try {
-                const newMsg = await api.chat.sendMessage(conversation.id, { message: contentText });
+                let activeConv = conversation;
+                if (!activeConv || !activeConv.id) {
+                    activeConv = await api.chat.createConversation({
+                        type: 'TASK',
+                        conversation_type: 'task_linked',
+                        task_id: task.id,
+                        title: `مناقشة المهمة: ${task.title}`
+                    });
+                    setConversation(activeConv);
+                }
+                const newMsg = await api.chat.sendMessage(activeConv.id, { message: contentText });
+                setText('');
                 setMessages(prev => [...prev, newMsg]);
+                setError('');
             } catch (err) {
                 console.error('Failed to send message:', err);
+                alert(err.message || 'تعذر إرسال الرسالة، يرجى المحاولة ثانية');
             } finally {
                 setSending(false);
             }
