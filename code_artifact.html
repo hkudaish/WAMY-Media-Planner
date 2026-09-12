@@ -6368,8 +6368,40 @@
             }
         }, [refresh, toast]);
 
-        const canFilterOrg = Boolean(profile && (profile.role === 'admin' || profile.role === 'supervisor'));
-        const effectiveOrg = canFilterOrg ? (filters.org || 'all') : (profile.org || 'wamy');
+        const activeOrgs = useMemo(() => {
+            const orgs = (data.organizations && data.organizations.length > 0)
+                ? data.organizations
+                : ORG_LIST;
+            const active = orgs.filter(o => o.is_active !== false);
+            if (!profile) return active;
+            const isFull = profile.role === 'admin' || (profile.permissions && profile.permissions['Organizations.View']);
+            if (isFull) return active;
+            return active.filter(o => !profile.org || o.code.toLowerCase() === profile.org.toLowerCase());
+        }, [data.organizations, profile]);
+
+        const isFullAdmin = Boolean(profile && (profile.role === 'admin' || (profile.permissions && profile.permissions['Organizations.View'])));
+        const canFilterOrg = Boolean(profile && (isFullAdmin || activeOrgs.length > 1));
+
+        const effectiveOrg = useMemo(() => {
+            if (!activeOrgs || activeOrgs.length === 0) {
+                return isFullAdmin ? (filters.org || 'all') : (profile?.org || 'none');
+            }
+            if (isFullAdmin) {
+                if (filters.org && filters.org !== 'all') {
+                    const exists = activeOrgs.some(o => o.code.toLowerCase() === filters.org.toLowerCase());
+                    return exists ? filters.org : 'all';
+                }
+                return filters.org || 'all';
+            }
+            if (activeOrgs.length === 1) {
+                return activeOrgs[0].code;
+            }
+            if (filters.org && filters.org !== 'all') {
+                const exists = activeOrgs.some(o => o.code.toLowerCase() === filters.org.toLowerCase());
+                if (exists) return filters.org;
+            }
+            return activeOrgs[0]?.code || profile?.org || 'none';
+        }, [activeOrgs, isFullAdmin, filters.org, profile]);
 
         const projectFilteredData = useMemo(() => {
             if (!selectedProjectId || selectedProjectId === 'all') {
@@ -6608,15 +6640,7 @@
                         </button>
                     </div>
 
-                    <div className="m-3 p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 flex items-center justify-between text-xs">
-                        {ORG_LIST.map(o => (
-                            <span key={o.code} className={cx('font-bold flex items-center gap-1.5', o.text)}>
-                                <span className={cx('w-2 h-2 rounded-full', o.dot)}></span>{o.short}
-                            </span>
-                        ))}
-                    </div>
-
-                    <nav className="flex-1 overflow-y-auto px-3 space-y-1 pb-3" aria-label="التنقل الرئيسي">
+                    <nav className="flex-1 overflow-y-auto px-3 space-y-1 py-3" aria-label="التنقل الرئيسي">
                         {visibleNav.map(item => (
                             <button key={item.key} onClick={() => go(item.key)}
                                     aria-current={activeTab === item.key ? 'page' : undefined}
@@ -6703,13 +6727,17 @@
                                            className="w-36 lg:w-48 bg-slate-950 border border-slate-700 rounded-xl ps-9 pe-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none" />
                                 </label>
 
-                                {canFilterOrg && (
+                                {canFilterOrg && activeOrgs.length > 0 && (
                                     <label>
                                         <span className="sr-only">تصفية حسب الجهة</span>
-                                        <select value={filters.org} onChange={(e) => setFilters(f => ({ ...f, org: e.target.value }))}
+                                        <select value={effectiveOrg} onChange={(e) => setFilters(f => ({ ...f, org: e.target.value }))}
                                                 className="bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none">
-                                            <option value="all">كل الجهات</option>
-                                            {ORG_LIST.map(o => <option key={o.code} value={o.code}>{o.label}</option>)}
+                                            {isFullAdmin && <option value="all">كل الجهات</option>}
+                                            {activeOrgs.map(o => (
+                                                <option key={o.code} value={o.code}>
+                                                    {o.name || o.label || o.short_name || o.code}
+                                                </option>
+                                            ))}
                                         </select>
                                     </label>
                                 )}

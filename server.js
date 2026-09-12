@@ -926,7 +926,22 @@ app.post('/api/profiles/:id/reset-password', requireActive, async (req, res, nex
 // -----------------------------------------------------------------------------
 app.get('/api/organizations', requireActive, async (req, res, next) => {
   try {
+    const isFullAdmin = isAdmin(req.user) || hasAllData(req.user);
+    const canManageOrgs = canAny(req.user, 'Organizations.Edit', 'Settings.General', 'Organizations.View');
     const includeInactive = req.query.include_inactive === 'true' && canAny(req.user, 'Organizations.Edit', 'Settings.General');
+
+    let whereClause = `where o.deleted_at is null and ($1::boolean or o.is_active = true)`;
+    const params = [includeInactive];
+
+    if (!isFullAdmin && !canManageOrgs) {
+      if (req.user && req.user.org) {
+        params.push(req.user.org.toLowerCase());
+        whereClause += ` and lower(o.code) = lower($${params.length})`;
+      } else {
+        return res.json([]);
+      }
+    }
+
     const { rows } = await pool.query(
       `select o.*,
               coalesce(p_cnt.cnt, 0)::int as profiles_count,
@@ -942,9 +957,9 @@ app.get('/api/organizations', requireActive, async (req, res, next) => {
          left join (
            select org, count(*) as cnt from tasks where deleted_at is null group by org
          ) t_cnt on lower(t_cnt.org) = lower(o.code)
-        where o.deleted_at is null and ($1::boolean or o.is_active = true)
+        ${whereClause}
         order by o.code`,
-      [includeInactive]
+      params
     );
     res.json(rows);
   } catch (error) {
