@@ -4250,11 +4250,12 @@ app.post('/api/chat/conversations', requireActive, async (req, res, next) => {
         }
 
         for (const uid of membersToAdd) {
+          const role = uid === req.user.id ? 'creator' : 'member';
           await client.query(
             `insert into chat_participants (conversation_id, user_id, role_in_conversation)
-             values ($1, $2, case when $2 = $3 then 'creator' else 'member' end)
+             values ($1, $2, $3)
              on conflict (conversation_id, user_id) do nothing`,
-            [conversationId, uid, req.user.id]
+            [conversationId, uid, role]
           );
         }
       } else {
