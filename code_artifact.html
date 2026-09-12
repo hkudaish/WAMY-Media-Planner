@@ -8187,13 +8187,13 @@
     }
 
 
-    function TaskWizardModal({ open, initial, defaultProjectId, initialStep, mode, data, profile, api, onClose, onSubmit, onCreateProject, onCreatePlanItem, busy }) {
+    function TaskWizardModal({ open, initial, defaultProjectId, initialStep, initialTab, mode, data, profile, api, onClose, onSubmit, onCreateProject, onCreatePlanItem, busy }) {
         const blank = { task_mode: 'structured', project_id: defaultProjectId || '', plan_track: '', plan_item_id: '', phase_name: '', title: '', description: '', goal: '', required_outputs: '',
             priority: 'normal', notes: '', scheduled_start_at: '', scheduled_due_at: '', assignee_ids: [], org: profile.org,
             status: 'not_started', progress: 0, schedule_change_reason: '' };
         const [form, setForm] = useState(blank);
         const [step, setStep] = useState(1);
-        const [modalTab, setModalTab] = useState('overview'); // 'overview' | 'procedures' | 'comments' | 'timeline' | 'evaluation' | 'activity'
+        const [modalTab, setModalTab] = useState(initialTab || 'overview'); // 'overview' | 'procedures' | 'comments' | 'timeline' | 'evaluation' | 'activity'
         const [proceduresCount, setProceduresCount] = useState(0);
         const [history, setHistory] = useState([]);
         const [activityLogs, setActivityLogs] = useState([]);
@@ -8230,7 +8230,7 @@
             return Number.isNaN(d.getTime()) ? (fallbackDate || todayISO()) : d.toISOString().slice(0, 10);
         };
 
-        const sessionKey = open ? `${(initial && initial.id) || (initial ? 'init-obj' : 'create')}_${initialStep || (mode === 'assign' ? 3 : 1)}_${mode || ''}_${defaultProjectId || ''}` : '';
+        const sessionKey = open ? `${(initial && initial.id) || (initial ? 'init-obj' : 'create')}_${initialStep || (mode === 'assign' ? 3 : 1)}_${initialTab || 'overview'}_${mode || ''}_${defaultProjectId || ''}` : '';
 
         useEffect(() => {
             if (!open) {
@@ -8244,7 +8244,7 @@
 
             const targetStep = (initial && (initialStep || (mode === 'assign' ? 3 : 1))) || 1;
             setStep(targetStep);
-            setModalTab('overview');
+            setModalTab(initialTab || 'overview');
             setHistory([]);
             setActivityLogs([]);
             setCommentsList([]);
@@ -9588,6 +9588,7 @@
         { key: 'masterPlan', label: 'الخطة الرئيسية',      icon: 'fa-diagram-project', permission: 'MainPlan.View' },
         { key: 'products',  label: 'المنتجات والمراحل',    icon: 'fa-layer-group', permission: 'Products.View' },
         { key: 'tasks',     label: 'المهام والمتابعة',      icon: 'fa-list-check', permission: 'Tasks.View' },
+        { key: 'messages',  label: 'الرسائل',              icon: 'fa-comments', accent: 'text-blue-400', permission: 'Tasks.View' },
         { key: 'gantt',     label: 'الخطة الزمنية',         icon: 'fa-chart-gantt', permission: 'Timeline.View' },
         { key: 'calendar',  label: 'التقويم والجدولة',      icon: 'fa-calendar-days', permission: 'Calendar.View' },
         { key: 'files',     label: 'مركز الملفات',          icon: 'fa-folder-open', accent: 'text-emerald-400', permission: 'Files.View' },
@@ -9642,7 +9643,10 @@
         const [taskReassignModal, setTaskReassignModal] = useState(null);
         const [taskHoldModal, setTaskHoldModal] = useState(null);
         const [globalChatOpen, setGlobalChatOpen] = useState(false);
+        const [chatDrawerParams, setChatDrawerParams] = useState({ open: false, initialConvId: null, initialTaskId: null, initialTab: 'direct' });
         const [chatUnreadCount, setChatUnreadCount] = useState(0);
+        const [chatUnreadSummary, setChatUnreadSummary] = useState({ unread_count: 0, unread_conversations_count: 0, unread_conversations: [] });
+        const lastUnreadCountRef = useRef(-1);
         const [confirmState, setConfirmState] = useState(null);
         const [busy, setBusy] = useState(false);
         const refreshSequence = useRef(0);
@@ -9721,17 +9725,62 @@
 
         useEffect(() => { refresh(true); }, [refresh]);
 
-        useEffect(() => {
+        const fetchChatUnread = useCallback(async (notifyOnNew = true) => {
             if (!api || !api.chat) return;
-            const loadUnread = () => {
-                api.chat.getUnreadCount()
-                    .then(res => setChatUnreadCount((res && res.unread_count) || 0))
-                    .catch(() => {});
+            try {
+                const res = await api.chat.getUnreadCount();
+                if (res) {
+                    const count = Number(res.unread_count || 0);
+                    const prevCount = lastUnreadCountRef.current;
+                    setChatUnreadSummary(res);
+                    setChatUnreadCount(count);
+
+                    if (notifyOnNew && prevCount !== -1 && count > prevCount && res.unread_conversations && res.unread_conversations.length > 0) {
+                        const latest = res.unread_conversations[0];
+                        const senderName = latest.latest_unread_sender_name || 'عضو في الفريق';
+                        const msgText = latest.latest_unread_message ? (latest.latest_unread_message.length > 45 ? latest.latest_unread_message.slice(0, 45) + '...' : latest.latest_unread_message) : 'رسالة جديدة';
+                        const taskTitle = latest.task_title ? `حول مهمة «${latest.task_title}»` : (latest.title || 'محادثة');
+                        
+                        toast(`💬 رسالة جديدة من ${senderName} (${taskTitle}): ${msgText}`, 'info');
+                    }
+                    lastUnreadCountRef.current = count;
+                }
+            } catch (_) {}
+        }, [api, toast]);
+
+        useEffect(() => {
+            fetchChatUnread(false);
+            const timer = setInterval(() => {
+                if (!document.hidden) fetchChatUnread(true);
+            }, 7000);
+            const handleFocus = () => { if (!document.hidden) fetchChatUnread(false); };
+            window.addEventListener('focus', handleFocus);
+            document.addEventListener('visibilitychange', handleFocus);
+            return () => {
+                clearInterval(timer);
+                window.removeEventListener('focus', handleFocus);
+                document.removeEventListener('visibilitychange', handleFocus);
             };
-            loadUnread();
-            const timer = setInterval(loadUnread, 20000);
-            return () => clearInterval(timer);
-        }, [api]);
+        }, [fetchChatUnread]);
+
+        useEffect(() => {
+            try {
+                const urlParams = new URLSearchParams(window.location.search);
+                const convIdParam = urlParams.get('conversation') || urlParams.get('conv');
+                const taskIdParam = urlParams.get('task') || urlParams.get('taskId');
+                const hash = window.location.hash || '';
+
+                if (convIdParam || taskIdParam || hash === '#messages' || hash.startsWith('#messages/')) {
+                    const extractedConvId = convIdParam || (hash.startsWith('#messages/') ? hash.replace('#messages/', '').split('?')[0] : null);
+                    setChatDrawerParams({
+                        open: true,
+                        initialConvId: extractedConvId,
+                        initialTaskId: taskIdParam,
+                        initialTab: taskIdParam ? 'tasks' : 'direct'
+                    });
+                }
+            } catch (_) {}
+        }, []);
 
         /* Refresh periodically so open browsers stay in sync through the one
            authorized local API connection. Pauses when the tab is hidden. */
@@ -10049,7 +10098,32 @@
             if (!visibleNav.some(item => item.key === activeTab)) setActiveTab(visibleNav[0] ? visibleNav[0].key : null);
         }, [profile, activeTab, visibleNav.map(item => item.key).join('|')]);
 
-        const go = (tab) => { setActiveTab(tab); setSidebarOpen(false); };
+        const handleSidebarNav = (key) => {
+            if (key === 'messages') {
+                setSidebarOpen(false);
+                if (chatUnreadSummary.unread_conversations_count === 1 && chatUnreadSummary.unread_conversations && chatUnreadSummary.unread_conversations[0]) {
+                    const single = chatUnreadSummary.unread_conversations[0];
+                    setChatDrawerParams({
+                        open: true,
+                        initialConvId: single.conversation_id,
+                        initialTaskId: single.task_id,
+                        initialTab: single.task_id ? 'tasks' : 'direct'
+                    });
+                } else {
+                    const hasTaskUnread = chatUnreadSummary.unread_conversations && chatUnreadSummary.unread_conversations.some(c => c.task_id);
+                    setChatDrawerParams({
+                        open: true,
+                        initialConvId: null,
+                        initialTaskId: null,
+                        initialTab: hasTaskUnread ? 'tasks' : 'direct'
+                    });
+                }
+                return;
+            }
+            setActiveTab(key);
+            setSidebarOpen(false);
+        };
+        const go = handleSidebarNav;
 
         if (loading) {
             return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><Spinner label="جارٍ تحميل بيانات الخطة…" /></div>;
@@ -10091,18 +10165,29 @@
                     </div>
 
                     <nav className="flex-1 overflow-y-auto px-3 space-y-1 py-3" aria-label="التنقل الرئيسي">
-                        {visibleNav.map(item => (
-                            <button key={item.key} onClick={() => go(item.key)}
-                                    aria-current={activeTab === item.key ? 'page' : undefined}
-                                    className={cx('w-full flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold text-sm transition-colors',
-                                        activeTab === item.key
-                                            ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                                            : 'text-slate-400 hover:bg-slate-800/60 hover:text-white')}>
-                                <i className={cx('fa-solid w-4 text-center shrink-0', item.icon,
-                                    activeTab === item.key ? '' : item.accent)}></i>
-                                <span className="truncate">{item.label}</span>
-                            </button>
-                        ))}
+                        {visibleNav.map(item => {
+                            const isMessages = item.key === 'messages';
+                            const isCurrent = isMessages ? (chatDrawerParams.open || globalChatOpen) : activeTab === item.key;
+                            return (
+                                <button key={item.key} onClick={() => handleSidebarNav(item.key)}
+                                        aria-current={isCurrent ? 'page' : undefined}
+                                        className={cx('w-full flex items-center justify-between px-3 py-2.5 rounded-xl font-bold text-sm transition-colors',
+                                            isCurrent
+                                                ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                                                : 'text-slate-400 hover:bg-slate-800/60 hover:text-white')}>
+                                    <div className="flex items-center gap-3 min-w-0">
+                                        <i className={cx('fa-solid w-4 text-center shrink-0', item.icon,
+                                            isCurrent ? '' : item.accent)}></i>
+                                        <span className="truncate">{item.label}</span>
+                                    </div>
+                                    {isMessages && chatUnreadCount > 0 && (
+                                        <span className="px-2 py-0.5 bg-rose-600 text-white text-xs rounded-full font-bold shadow-md animate-pulse">
+                                            {chatUnreadCount}
+                                        </span>
+                                    )}
+                                </button>
+                            );
+                        })}
                     </nav>
 
                     <div className="p-3 border-t border-slate-800 bg-slate-950/60 flex items-center justify-between gap-2">
@@ -10192,11 +10277,24 @@
                                     </label>
                                 )}
 
+                                {can(profile, 'Tasks.View') && (
+                                    <button type="button" onClick={() => handleSidebarNav('messages')}
+                                            className="relative w-10 h-10 bg-slate-950 border border-slate-700 rounded-xl text-slate-300 hover:text-blue-300 flex items-center justify-center transition-colors"
+                                            title="الرسائل والمحادثات" aria-label={`الرسائل: ${chatUnreadCount}`}>
+                                        <i className="fa-solid fa-comments"></i>
+                                        {chatUnreadCount > 0 && (
+                                            <span className="absolute -top-1 -end-1 min-w-5 h-5 px-1 bg-rose-600 text-white text-[10px] rounded-full flex items-center justify-center font-bold animate-pulse">
+                                                {Math.min(chatUnreadCount, 99)}
+                                            </span>
+                                        )}
+                                    </button>
+                                )}
+
                                 {can(profile, 'MainPlan.View') && <button type="button" onClick={() => go('masterPlan')}
                                         className="relative w-10 h-10 bg-slate-950 border border-slate-700 rounded-xl text-slate-300 hover:text-amber-300 flex items-center justify-center"
                                         title="تنبيهات التنفيذ" aria-label={`تنبيهات التنفيذ: ${visibleAlerts.length}`}>
                                     <i className="fa-solid fa-bell"></i>
-                                    {visibleAlerts.length > 0 && <span className="absolute -top-1 -end-1 min-w-5 h-5 px-1 bg-rose-600 text-white text-[10px] rounded-full flex items-center justify-center">{Math.min(visibleAlerts.length, 99)}</span>}
+                                    {visibleAlerts.length > 0 && <span className="absolute -top-1 -end-1 min-w-5 h-5 px-1 bg-rose-600 text-white text-[10px] rounded-full flex items-center justify-center font-bold">{Math.min(visibleAlerts.length, 99)}</span>}
                                 </button>}
 
                                 <button type="button" onClick={() => setGlobalChatOpen(true)}
@@ -10289,7 +10387,9 @@
 
                 <TaskWizardModal open={!!taskModal} initial={taskModal && taskModal.initial}
                                  defaultProjectId={selectedProjectId !== 'all' ? selectedProjectId : undefined}
-                                 initialStep={taskModal && taskModal.initialStep} mode={taskModal && taskModal.mode}
+                                 initialStep={taskModal && taskModal.initialStep}
+                                 initialTab={taskModal && taskModal.initialTab}
+                                 mode={taskModal && taskModal.mode}
                                  data={data} profile={profile} api={api}
                                  onCreateProject={() => setProjectModal({ initial: null })}
                                  onCreatePlanItem={(projId) => setPlanItemQuickModal({ projectId: projId })}
@@ -10342,14 +10442,37 @@
                                    onClose={() => setTaskReassignModal(null)} onReassigned={handleReassignSubmission} busy={busy} />
                 <TaskHoldModal open={!!taskHoldModal} task={taskHoldModal} api={api}
                                onClose={() => setTaskHoldModal(null)} onHold={handleHoldSubmission} busy={busy} />
-                <GlobalChatDrawer open={globalChatOpen} profile={profile} profiles={data.profiles} data={data} api={api}
+                <GlobalChatDrawer open={chatDrawerParams.open || globalChatOpen}
+                                  initialConvId={chatDrawerParams.initialConvId}
+                                  initialTaskId={chatDrawerParams.initialTaskId}
+                                  initialTab={chatDrawerParams.initialTab}
+                                  profile={profile}
+                                  profiles={data.profiles}
+                                  data={projectFilteredData}
+                                  api={api}
                                   onClose={() => {
+                                      setChatDrawerParams(prev => ({ ...prev, open: false }));
                                       setGlobalChatOpen(false);
-                                      if (api && api.chat) api.chat.getUnreadCount().then(res => setChatUnreadCount((res && res.unread_count) || 0)).catch(() => {});
+                                      if (api && api.chat) fetchChatUnread(false);
                                   }}
-                                  onOpenTask={(t) => {
+                                  onOpenTask={(t, tab = 'overview') => {
+                                      setChatDrawerParams(prev => ({ ...prev, open: false }));
                                       setGlobalChatOpen(false);
-                                      setTaskModal({ initial: t, initialStep: 1, mode: 'edit' });
+                                      setTaskModal({ initial: t, initialStep: 1, initialTab: tab, mode: 'edit' });
+                                  }}
+                                  onReadConversation={(convId, readCount) => {
+                                      setChatUnreadCount(prev => Math.max(0, prev - readCount));
+                                      setChatUnreadSummary(prev => {
+                                          const nextConvs = (prev.unread_conversations || []).filter(c => c.conversation_id !== convId);
+                                          const nextCount = Math.max(0, (prev.unread_count || 0) - readCount);
+                                          return {
+                                              ...prev,
+                                              unread_count: nextCount,
+                                              unread_conversations_count: nextConvs.length,
+                                              unread_conversations: nextConvs
+                                          };
+                                      });
+                                      setTimeout(() => fetchChatUnread(false), 1000);
                                   }} />
                 <ConfirmDialog state={confirmState} onCancel={() => setConfirmState(null)} />
             </div>

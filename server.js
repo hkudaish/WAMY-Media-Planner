@@ -4532,19 +4532,66 @@ app.get('/api/chat/accessible-tasks', requireActive, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// 7. GET /api/chat/unread-count - Get total unread messages count for current user
+// 7. GET /api/chat/unread-count - Get total unread messages count and summary for current user
 app.get('/api/chat/unread-count', requireActive, async (req, res, next) => {
   try {
     const { rows } = await pool.query(
-      `select count(*)::int as unread_count
-         from chat_messages cm
-         join chat_participants cp on cp.conversation_id = cm.conversation_id and cp.user_id = $1
-        where cm.deleted_at is null
-          and cm.created_at > cp.last_read_at
-          and cm.sender_id <> $1`,
+      `select c.id as conversation_id,
+              c.type,
+              c.task_id,
+              c.project_id,
+              c.plan_id,
+              c.title,
+              t.title as task_title,
+              t.status as task_status,
+              t.due_date as task_due_date,
+              t.scheduled_due_at as task_scheduled_due_at,
+              p.name as project_name,
+              count(cm.id)::int as unread_count,
+              max(cm.created_at) as latest_message_at,
+              (
+                select cm2.message
+                  from chat_messages cm2
+                 where cm2.conversation_id = c.id
+                   and cm2.deleted_at is null
+                   and cm2.created_at > cp.last_read_at
+                   and cm2.sender_id <> $1
+                 order by cm2.created_at desc limit 1
+              ) as latest_unread_message,
+              (
+                select s.name
+                  from chat_messages cm2
+                  join profiles s on s.id = cm2.sender_id
+                 where cm2.conversation_id = c.id
+                   and cm2.deleted_at is null
+                   and cm2.created_at > cp.last_read_at
+                   and cm2.sender_id <> $1
+                 order by cm2.created_at desc limit 1
+              ) as latest_unread_sender_name
+         from chat_conversations c
+         join chat_participants cp on cp.conversation_id = c.id and cp.user_id = $1
+         join chat_messages cm on cm.conversation_id = c.id
+                               and cm.deleted_at is null
+                               and cm.created_at > cp.last_read_at
+                               and cm.sender_id <> $1
+         left join tasks t on t.id = c.task_id and t.deleted_at is null
+         left join projects p on p.id = c.project_id and p.deleted_at is null
+        group by c.id, c.type, c.task_id, c.project_id, c.plan_id, c.title, t.title, t.status, t.due_date, t.scheduled_due_at, p.name, cp.last_read_at
+        order by latest_message_at desc`,
       [req.user.id]
     );
-    res.json({ unread_count: rows[0]?.unread_count || 0 });
+
+    const totalUnread = rows.reduce((sum, r) => sum + Number(r.unread_count || 0), 0);
+    const unreadConvsCount = rows.length;
+    const latestConv = rows[0] || null;
+
+    res.json({
+      unread_count: totalUnread,
+      unread_conversations_count: unreadConvsCount,
+      unread_conversations: rows,
+      latest_conversation_id: latestConv?.conversation_id || null,
+      latest_task_id: latestConv?.task_id || null
+    });
   } catch (err) { next(err); }
 });
 

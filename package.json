@@ -26,7 +26,8 @@
     "test:hierarchy": "node scripts/test-hierarchy-coding.js",
     "test:enhanced": "node scripts/test-enhanced-features.js",
     "test:procedures": "node scripts/test-task-execution-procedures.js",
-    "test": "node scripts/check.js && node scripts/test-enhanced-features.js && node scripts/test-task-execution-procedures.js"
+    "test:chat": "node scripts/test-task-workflows-and-chat.js",
+    "test": "node scripts/check.js && node scripts/test-enhanced-features.js && node scripts/test-task-execution-procedures.js && node scripts/test-task-workflows-and-chat.js"
   },
   "engines": {
     "node": ">=20"
