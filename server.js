@@ -11,6 +11,7 @@ const { readWorkbook: readRawWorkbook } = require('./scripts/ooxml-reader');
 const { Pool, types } = require('pg');
 const projectHierarchyIO = require('./server/project-hierarchy-io');
 const backupManager = require('./server/backup-manager');
+const reportsEngine = require('./server/reports-engine');
 const { ensureDatabaseMigrated } = require('./scripts/init-db');
 
 // PostgreSQL DATE has no time zone. Keep it as YYYY-MM-DD instead of letting
@@ -2858,6 +2859,46 @@ app.post('/api/system/reset-projects', requireActive, async (req, res, next) => 
     await writeAudit(pool, req, 'إعادة تهيئة النظام وحذف جميع بيانات المشاريع والمهام', 'DELETE', 'system', null,
       { wipedCounts: result.wipedCounts, preResetBackup: result.preResetBackup ? result.preResetBackup.id : null });
     res.json({ success: true, message: 'تمت إعادة تهيئة بيانات المشاريع بنجاح مع المحافظة على حسابات المستخدمين والإعدادات.', result });
+  } catch (error) { next(error); }
+});
+
+// -----------------------------------------------------------------------------
+// Reports Engine API Routes
+// -----------------------------------------------------------------------------
+app.get('/api/reports/filters-meta', requireActive, async (req, res, next) => {
+  if (!can(req.user, 'Reports.View') && !isAdmin(req.user)) return forbid(res);
+  try {
+    const meta = await reportsEngine.getFilterMetadata(pool, req.user, req.query);
+    res.json(meta);
+  } catch (error) { next(error); }
+});
+
+app.post('/api/reports/query', requireActive, async (req, res, next) => {
+  if (!can(req.user, 'Reports.View') && !isAdmin(req.user)) return forbid(res);
+  try {
+    const result = await reportsEngine.queryReports(pool, req.user, req.body.filters || {}, req.body.pagination || {});
+    res.json(result);
+  } catch (error) { next(error); }
+});
+
+app.post('/api/reports/export-excel', requireActive, async (req, res, next) => {
+  if (!canAny(req.user, 'Reports.Export', 'Reports.View') && !isAdmin(req.user)) return forbid(res);
+  try {
+    const workbook = await reportsEngine.exportReportsExcel(pool, req.user, req.body.filters || {});
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="report-${new Date().toISOString().slice(0, 10)}.xlsx"`);
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (error) { next(error); }
+});
+
+app.post('/api/reports/export-csv', requireActive, async (req, res, next) => {
+  if (!canAny(req.user, 'Reports.Export', 'Reports.View') && !isAdmin(req.user)) return forbid(res);
+  try {
+    const csvContent = await reportsEngine.exportReportsCsv(pool, req.user, req.body.filters || {});
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="report-${new Date().toISOString().slice(0, 10)}.csv"`);
+    res.send(csvContent);
   } catch (error) { next(error); }
 });
 

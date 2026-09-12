@@ -154,6 +154,9 @@
                 width: 100% !important;
                 font-size: 11px !important;
             }
+            .print-surface thead {
+                display: table-header-group !important;
+            }
             .print-surface thead tr {
                 background-color: #f1f5f9 !important;
                 border-bottom: 2px solid #94a3b8 !important;
@@ -175,8 +178,15 @@
                 background-color: #f8fafc !important;
             }
             @page {
+                size: A4 landscape;
+                margin: 10mm;
+            }
+            @page portrait-layout {
                 size: A4 portrait;
-                margin: 1.2cm;
+                margin: 12mm;
+            }
+            .portrait-page {
+                page: portrait-layout;
             }
         }
         .print-only { display: none; }
@@ -598,7 +608,59 @@
             settings: { get: () => request('/settings'), update: (patch, updatedAt) => request('/settings', {
                 method: 'PATCH', body: JSON.stringify(patch),
                 headers: updatedAt ? { 'If-Match': `"${updatedAt}"` } : {}
-            }) }
+            }) },
+            reports: {
+                getFiltersMeta: (params) => {
+                    if (!params) return request('/reports/filters-meta');
+                    const q = new URLSearchParams(Object.entries(params).filter(([_, v]) => v != null && v !== '' && v !== 'all')).toString();
+                    return request('/reports/filters-meta' + (q ? '?' + q : ''));
+                },
+                query: (filters, pagination) => request('/reports/query', {
+                    method: 'POST', body: JSON.stringify({ filters, pagination })
+                }),
+                exportExcel: async (filters) => {
+                    const response = await fetch('/api/reports/export-excel', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ filters })
+                    });
+                    if (!response.ok) {
+                        const err = await response.json().catch(() => null);
+                        throw new Error((err && err.message) || 'تعذر تصدير تقرير Excel');
+                    }
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `report-${new Date().toISOString().slice(0, 10)}.xlsx`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+                },
+                exportCsv: async (filters) => {
+                    const response = await fetch('/api/reports/export-csv', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ filters })
+                    });
+                    if (!response.ok) {
+                        const err = await response.json().catch(() => null);
+                        throw new Error((err && err.message) || 'تعذر تصدير تقرير CSV');
+                    }
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `report-${new Date().toISOString().slice(0, 10)}.csv`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+                }
+            }
         };
     }
 
@@ -4786,112 +4848,757 @@
         );
     }
 
-    function ReportsScreen({ data, stats, profile, filters, onExport, exportExcelUrl }) {
-        const { products, tasks, projects, planItems, alerts } = data;
-        const mayExport = can(profile, 'Reports.Export');
-        const orgFilter = (filters && filters.org) || 'all';
+    function ReportsScreen({ api, profile, data, stats, filters: parentFilters }) {
+        const toast = useToast();
+        const mayExport = canAny(profile, 'Reports.Export', 'Reports.View') || isAdmin(profile);
 
-        const filteredProducts = useMemo(() => orgFilter === 'all' ? products : products.filter(p => p.org === orgFilter), [products, orgFilter]);
-        const filteredTasks    = useMemo(() => orgFilter === 'all' ? tasks : tasks.filter(t => t.org === orgFilter), [tasks, orgFilter]);
-        const filteredAlerts   = useMemo(() => orgFilter === 'all' ? alerts : alerts.filter(a => {
-            const t = byId(tasks, a.task_id);
-            return (t && t.org === orgFilter) || (!t && (!a.org || a.org === orgFilter));
-        }), [alerts, tasks, orgFilter]);
+        // Filter state
+        const [filterForm, setFilterForm] = useState({
+            org: (parentFilters && parentFilters.org) || 'all',
+            project_id: 'all',
+            plan_item_id: 'all',
+            manager_id: 'all',
+            team_head_id: 'all',
+            member_id: 'all',
+            status: 'all',
+            priority: 'all',
+            date_type: 'due_date',
+            date_from: '',
+            date_to: '',
+            query: ''
+        });
 
-        const orgLabel = orgFilter !== 'all' ? lookup(ORGS, orgFilter, { label: orgFilter }).label : null;
+        // Filter metadata from server
+        const [meta, setMeta] = useState({
+            organizations: [],
+            projects: [],
+            plans: [],
+            managers: [],
+            team_heads: [],
+            team_members: [],
+            statuses: [],
+            priorities: [],
+            date_types: []
+        });
+
+        // Query execution state
+        const [reportData, setReportData] = useState({
+            summary: {
+                total_projects: 0,
+                total_plans: 0,
+                total_tasks: 0,
+                completed_tasks: 0,
+                in_progress_tasks: 0,
+                not_started_tasks: 0,
+                overdue_tasks: 0,
+                avg_progress: 0,
+                total_delay_days: 0
+            },
+            pagination: { total: 0, page: 1, limit: 25, total_pages: 1 },
+            rows: []
+        });
+
+        const [loading, setLoading] = useState(true);
+        const [metaLoading, setMetaLoading] = useState(false);
+        const [exportingExcel, setExportingExcel] = useState(false);
+        const [exportingCsv, setExportingCsv] = useState(false);
+        const [printOrientation, setPrintOrientation] = useState('landscape'); // 'landscape' | 'portrait'
+        const [sortConfig, setSortConfig] = useState({ sort_by: 't.due_date', sort_dir: 'asc' });
+        const [page, setPage] = useState(1);
+        const [pageSize, setPageSize] = useState(25);
+
+        // 1. Fetch Filter Metadata dynamically when parent filter dimensions change
+        useEffect(() => {
+            let active = true;
+            setMetaLoading(true);
+            const params = {
+                org: filterForm.org,
+                project_id: filterForm.project_id,
+                plan_item_id: filterForm.plan_item_id,
+                team_head_id: filterForm.team_head_id
+            };
+
+            api.reports.getFiltersMeta(params)
+                .then(res => {
+                    if (active && res) {
+                        setMeta(res);
+                    }
+                })
+                .catch(err => {
+                    console.error('Failed to load filter metadata:', err);
+                })
+                .finally(() => {
+                    if (active) setMetaLoading(false);
+                });
+
+            return () => { active = false; };
+        }, [api, filterForm.org, filterForm.project_id, filterForm.plan_item_id, filterForm.team_head_id]);
+
+        // 2. Fetch Report Data & KPIs (Debounced on search query)
+        const executeReportQuery = useCallback(() => {
+            setLoading(true);
+            const pagination = {
+                page,
+                limit: pageSize,
+                sort_by: sortConfig.sort_by,
+                sort_dir: sortConfig.sort_dir
+            };
+
+            api.reports.query(filterForm, pagination)
+                .then(res => {
+                    if (res) {
+                        setReportData(res);
+                    }
+                })
+                .catch(err => {
+                    console.error('Failed to execute report query:', err);
+                    toast(err.message || 'تعذر تحميل بيانات التقرير', 'error');
+                })
+                .finally(() => {
+                    setLoading(false);
+                });
+        }, [api, filterForm, page, pageSize, sortConfig, toast]);
+
+        useEffect(() => {
+            const timer = setTimeout(() => {
+                executeReportQuery();
+            }, 200);
+            return () => clearTimeout(timer);
+        }, [executeReportQuery]);
+
+        // Cascading Filter Handlers
+        const handleOrgChange = (val) => {
+            setFilterForm(prev => ({
+                ...prev,
+                org: val,
+                project_id: 'all',
+                plan_item_id: 'all',
+                team_head_id: 'all',
+                member_id: 'all'
+            }));
+            setPage(1);
+        };
+
+        const handleProjectChange = (val) => {
+            setFilterForm(prev => ({
+                ...prev,
+                project_id: val,
+                plan_item_id: 'all',
+                team_head_id: 'all',
+                member_id: 'all'
+            }));
+            setPage(1);
+        };
+
+        const handlePlanChange = (val) => {
+            setFilterForm(prev => ({
+                ...prev,
+                plan_item_id: val,
+                team_head_id: 'all',
+                member_id: 'all'
+            }));
+            setPage(1);
+        };
+
+        const handleTeamHeadChange = (val) => {
+            setFilterForm(prev => ({
+                ...prev,
+                team_head_id: val,
+                member_id: 'all'
+            }));
+            setPage(1);
+        };
+
+        const resetAllFilters = () => {
+            setFilterForm({
+                org: 'all',
+                project_id: 'all',
+                plan_item_id: 'all',
+                manager_id: 'all',
+                team_head_id: 'all',
+                member_id: 'all',
+                status: 'all',
+                priority: 'all',
+                date_type: 'due_date',
+                date_from: '',
+                date_to: '',
+                query: ''
+            });
+            setPage(1);
+        };
+
+        const handleSort = (col) => {
+            setSortConfig(prev => {
+                if (prev.sort_by === col) {
+                    return { sort_by: col, sort_dir: prev.sort_dir === 'asc' ? 'desc' : 'asc' };
+                }
+                return { sort_by: col, sort_dir: 'asc' };
+            });
+            setPage(1);
+        };
+
+        // Export Handlers
+        const handleExportExcel = async () => {
+            setExportingExcel(true);
+            try {
+                await api.reports.exportExcel(filterForm);
+                toast('تم تصدير تقرير Excel بنجاح', 'success');
+            } catch (err) {
+                toast(err.message || 'تعذر تصدير تقرير Excel', 'error');
+            } finally {
+                setExportingExcel(false);
+            }
+        };
+
+        const handleExportCsv = async () => {
+            setExportingCsv(true);
+            try {
+                await api.reports.exportCsv(filterForm);
+                toast('تم تصدير تقرير CSV بنجاح', 'success');
+            } catch (err) {
+                toast(err.message || 'تعذر تصدير تقرير CSV', 'error');
+            } finally {
+                setExportingCsv(false);
+            }
+        };
+
+        const handlePrint = () => {
+            window.print();
+        };
+
+        // Active Filter Chips computation
+        const activeChips = useMemo(() => {
+            const chips = [];
+            if (filterForm.org && filterForm.org !== 'all') {
+                const o = (meta.organizations || []).find(x => x.code === filterForm.org);
+                chips.push({ key: 'org', label: `الجهة: ${o ? (o.name || o.code) : filterForm.org}`, clear: () => handleOrgChange('all') });
+            }
+            if (filterForm.project_id && filterForm.project_id !== 'all') {
+                const p = (meta.projects || []).find(x => x.id === filterForm.project_id);
+                chips.push({ key: 'project_id', label: `المشروع: ${p ? p.name : filterForm.project_id}`, clear: () => handleProjectChange('all') });
+            }
+            if (filterForm.plan_item_id && filterForm.plan_item_id !== 'all') {
+                const pl = (meta.plans || []).find(x => x.id === filterForm.plan_item_id);
+                chips.push({ key: 'plan_item_id', label: `الخطة: ${pl ? pl.title : filterForm.plan_item_id}`, clear: () => handlePlanChange('all') });
+            }
+            if (filterForm.manager_id && filterForm.manager_id !== 'all') {
+                const m = (meta.managers || []).find(x => x.id === filterForm.manager_id);
+                chips.push({ key: 'manager_id', label: `المدير: ${m ? m.name : filterForm.manager_id}`, clear: () => setFilterForm(f => ({ ...f, manager_id: 'all' })) });
+            }
+            if (filterForm.team_head_id && filterForm.team_head_id !== 'all') {
+                const h = (meta.team_heads || []).find(x => x.id === filterForm.team_head_id);
+                chips.push({ key: 'team_head_id', label: `رئيس الفريق: ${h ? h.name : filterForm.team_head_id}`, clear: () => handleTeamHeadChange('all') });
+            }
+            if (filterForm.member_id && filterForm.member_id !== 'all') {
+                const tm = (meta.team_members || []).find(x => x.id === filterForm.member_id);
+                chips.push({ key: 'member_id', label: `عضو الفريق: ${tm ? tm.name : filterForm.member_id}`, clear: () => setFilterForm(f => ({ ...f, member_id: 'all' })) });
+            }
+            if (filterForm.status && filterForm.status !== 'all') {
+                const st = (meta.statuses || []).find(x => x.key === filterForm.status);
+                chips.push({ key: 'status', label: `الحالة: ${st ? st.label : filterForm.status}`, clear: () => setFilterForm(f => ({ ...f, status: 'all' })) });
+            }
+            if (filterForm.priority && filterForm.priority !== 'all') {
+                const pr = (meta.priorities || []).find(x => x.key === filterForm.priority);
+                chips.push({ key: 'priority', label: `الأولوية: ${pr ? pr.label : filterForm.priority}`, clear: () => setFilterForm(f => ({ ...f, priority: 'all' })) });
+            }
+            if (filterForm.date_from || filterForm.date_to) {
+                const dtLabel = (meta.date_types || []).find(x => x.key === filterForm.date_type)?.label || 'التاريخ';
+                chips.push({
+                    key: 'dates',
+                    label: `${dtLabel}: ${filterForm.date_from || '—'} إلى ${filterForm.date_to || '—'}`,
+                    clear: () => setFilterForm(f => ({ ...f, date_from: '', date_to: '' }))
+                });
+            }
+            if (filterForm.query) {
+                chips.push({ key: 'query', label: `بحث: "${filterForm.query}"`, clear: () => setFilterForm(f => ({ ...f, query: '' })) });
+            }
+            return chips;
+        }, [filterForm, meta]);
+
+        const summary = reportData.summary || {};
+        const rows = reportData.rows || [];
+        const pagination = reportData.pagination || { total: 0, page: 1, limit: 25, total_pages: 1 };
 
         return (
-            <div className="space-y-5 print-surface">
-                <SectionHeading icon="fa-file-invoice" title={orgLabel ? `التقرير التنفيذي الشامل — ${orgLabel}` : 'التقرير التنفيذي الشامل'}
-                                description={`مُصدَّر بتاريخ ${formatDate(todayISO())}${orgLabel ? ` · مصفى لجهة: ${orgLabel}` : ''}`}>
-                    {mayExport && (
-                        <React.Fragment>
-                            <button onClick={onExport} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-sm font-bold">
-                                <i className="fa-solid fa-file-csv me-1.5 text-emerald-400"></i>تصدير CSV
-                            </button>
-                            <a href={exportExcelUrl} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-bold">
-                                <i className="fa-solid fa-file-excel me-1.5"></i>تصدير Excel
-                            </a>
-                            <button onClick={() => window.print()} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-bold">
-                                <i className="fa-solid fa-print me-1.5"></i>طباعة
-                            </button>
-                        </React.Fragment>
-                    )}
-                </SectionHeading>
-
-                <div className="print-only mb-6 pb-4 border-b border-slate-300">
-                    <h1 style={{ fontSize: '20px', fontWeight: 800 }} className="text-slate-900">
-                        التقرير التنفيذي الشامل {orgLabel ? `— ${orgLabel}` : ''}
-                    </h1>
-                    <p style={{ fontSize: '13px' }} className="text-slate-600 mt-1">الندوة العالمية للشباب الإسلامي (WAMY) &amp; إمعان — متابعة الخطة الزمنية للمشاريع والمنتجات — مُصدَّر بتاريخ {formatDate(todayISO())}</p>
-                </div>
-
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    {[
-                        { label: 'نسبة الإنجاز الكلية', value: stats.overallProgress + '%', tone: 'text-emerald-400' },
-                        { label: 'المهام المنجزة',      value: `${stats.completedTasks} / ${stats.totalTasks}`, tone: 'text-blue-400' },
-                        { label: 'مهام متأخرة',         value: stats.delayedTasks, tone: stats.delayedTasks ? 'text-rose-400' : 'text-emerald-400' },
-                        { label: 'ملفات معتمدة',        value: stats.approvedFiles, tone: 'text-purple-400' }
-                    ].map(card => (
-                        <div key={card.label} className="p-4 bg-slate-900 rounded-2xl border border-slate-800 text-center print-box">
-                            <span className="text-xs text-slate-400 block mb-1">{card.label}</span>
-                            <strong className={cx('text-2xl font-extrabold', card.tone)}>{card.value}</strong>
+            <div className={cx('space-y-6 print-surface', printOrientation === 'portrait' && 'portrait-page')}>
+                {/* 1. Header & Quick Actions */}
+                <div className="flex flex-wrap items-center justify-between gap-4 no-print">
+                    <div className="space-y-1">
+                        <div className="flex items-center gap-3">
+                            <span className="w-10 h-10 rounded-2xl bg-blue-600/10 border border-blue-500/30 flex items-center justify-center text-blue-400">
+                                <i className="fa-solid fa-file-invoice text-lg"></i>
+                            </span>
+                            <div>
+                                <h2 className="text-xl font-extrabold text-white">التقارير التنفيذية ومتابعة الأداء</h2>
+                                <p className="text-xs text-slate-400">
+                                    تقارير مخصصة ومصفاة وفق الصلاحيات المعتمدة وهيكل المشاريع مع إمكانية التصدير والطباعة.
+                                </p>
+                            </div>
                         </div>
-                    ))}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                        {/* Orientation selector for print */}
+                        <div className="flex items-center p-1 bg-slate-900 border border-slate-800 rounded-xl text-xs font-bold">
+                            <button type="button" onClick={() => setPrintOrientation('landscape')}
+                                    className={cx('px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1.5',
+                                        printOrientation === 'landscape' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white')}>
+                                <i className="fa-solid fa-arrows-left-right"></i>
+                                <span>أفقي (Landscape)</span>
+                            </button>
+                            <button type="button" onClick={() => setPrintOrientation('portrait')}
+                                    className={cx('px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1.5',
+                                        printOrientation === 'portrait' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white')}>
+                                <i className="fa-solid fa-arrows-up-down"></i>
+                                <span>رأسي (Portrait)</span>
+                            </button>
+                        </div>
+
+                        {mayExport && (
+                            <React.Fragment>
+                                <button type="button" onClick={handleExportExcel} disabled={exportingExcel || loading}
+                                        className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm">
+                                    <i className={cx('fa-solid', exportingExcel ? 'fa-circle-notch fa-spin' : 'fa-file-excel')}></i>
+                                    <span>تصدير Excel</span>
+                                </button>
+                                <button type="button" onClick={handleExportCsv} disabled={exportingCsv || loading}
+                                        className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors border border-slate-700">
+                                    <i className={cx('fa-solid', exportingCsv ? 'fa-circle-notch fa-spin' : 'fa-file-csv', 'text-emerald-400')}></i>
+                                    <span>تصدير CSV</span>
+                                </button>
+                                <button type="button" onClick={handlePrint}
+                                        className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm shadow-blue-600/20">
+                                    <i className="fa-solid fa-print"></i>
+                                    <span>طباعة / PDF</span>
+                                </button>
+                            </React.Fragment>
+                        )}
+                    </div>
                 </div>
 
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden print-box">
-                    <h3 className="text-sm font-bold text-white p-5 pb-3">الالتزام بالخطة الرئيسية</h3>
-                    <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-slate-800 text-slate-400 bg-slate-950/40 text-xs">
-                        <th className="p-3 text-start">المشروع</th><th className="p-3 text-start">بنود خط الأساس</th><th className="p-3 text-start">المهام المرتبطة</th>
-                        <th className="p-3 text-start">الإنجاز</th><th className="p-3 text-start">المتأخرة</th><th className="p-3 text-start">التنبيهات</th>
-                    </tr></thead><tbody className="divide-y divide-slate-800">{projects.map(project => {
-                        const ownTasks = filteredTasks.filter(task => task.project_id === project.id);
-                        const ownItems = planItems.filter(item => item.project_id === project.id);
-                        const completed = ownTasks.filter(isTaskDone).length;
-                        const overdue = ownTasks.filter(isOverdue).length;
-                        return <tr key={project.id}><td className="p-3"><strong className="block text-white">{project.name}</strong></td>
-                            <td className="p-3">{ownItems.length}</td><td className="p-3">{new Set(ownTasks.map(task => task.plan_item_id).filter(Boolean)).size} / {ownTasks.length}</td>
-                            <td className="p-3 text-emerald-400 font-bold">{ownTasks.length ? Math.round(completed / ownTasks.length * 100) : 0}%</td>
-                            <td className={cx('p-3 font-bold', overdue ? 'text-rose-400' : 'text-emerald-400')}>{overdue}</td>
-                            <td className="p-3 text-amber-300">{filteredAlerts.filter(alert => alert.project_id === project.id).length}</td></tr>;
-                    })}</tbody></table></div>
+                {/* 2. Official Print Header (Visible only when printing) */}
+                <div className="print-only mb-6 pb-4 border-b-2 border-slate-900">
+                    <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                            <WamyLogo className="w-12 h-12" />
+                            <div>
+                                <h1 className="text-xl font-extrabold text-slate-900">الندوة العالمية للشباب الإسلامي (WAMY)</h1>
+                                <p className="text-xs text-slate-600">إدارة المشاريع والخطط الزمنية — التقرير التنفيذي الشامل</p>
+                            </div>
+                        </div>
+                        <div className="text-end text-xs text-slate-600 font-mono space-y-0.5">
+                            <div><strong>تاريخ الاستخراج:</strong> {new Date().toLocaleDateString('ar-SA')} {new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })}</div>
+                            <div><strong>المستخرج:</strong> {profile?.name || '—'} ({profile?.position || profile?.role || 'مستخدم'})</div>
+                            {filterForm.org !== 'all' && <div><strong>الجهة المحددة:</strong> {filterForm.org}</div>}
+                        </div>
+                    </div>
+                    {activeChips.length > 0 && (
+                        <div className="mt-3 pt-2 border-t border-slate-200 text-xs text-slate-700 flex flex-wrap gap-2">
+                            <strong>الفلاتر المطبقة:</strong>
+                            {activeChips.map(c => <span key={c.key} className="bg-slate-100 px-2 py-0.5 rounded border border-slate-300 font-medium">{c.label}</span>)}
+                        </div>
+                    )}
                 </div>
 
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden print-box">
-                    <h3 className="text-sm font-bold text-white p-5 pb-3">تفصيل المنتجات</h3>
+                {/* 3. Cascading Filters Panel */}
+                <div className="p-4 md:p-5 bg-slate-900 border border-slate-800 rounded-2xl shadow-md space-y-4 no-print">
+                    <div className="flex items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                        <div className="flex items-center gap-2 text-sm font-bold text-white">
+                            <i className="fa-solid fa-filter text-blue-400"></i>
+                            <span>فلاتر التقرير الهرمية المتقدمة</span>
+                            {metaLoading && <i className="fa-solid fa-circle-notch fa-spin text-xs text-blue-400 ms-2"></i>}
+                        </div>
+                        <button type="button" onClick={resetAllFilters}
+                                className="text-xs text-slate-400 hover:text-rose-400 font-bold flex items-center gap-1 transition-colors">
+                            <i className="fa-solid fa-rotate-left"></i>
+                            <span>إعادة تعيين كافة الفلاتر</span>
+                        </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 text-xs">
+                        {/* 1. Organization Filter */}
+                        <div className="space-y-1">
+                            <label className="text-slate-400 font-bold block">🏢 1. الجهة / المؤسسة</label>
+                            <select value={filterForm.org} onChange={e => handleOrgChange(e.target.value)}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none">
+                                <option value="all">📁 كل الجهات النشطة ({meta.organizations?.length || 0})</option>
+                                {(meta.organizations || []).map(o => (
+                                    <option key={o.code} value={o.code}>{o.name || o.code}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* 2. Project Filter */}
+                        <div className="space-y-1">
+                            <label className="text-slate-400 font-bold block">📁 2. المشروع المعتمد</label>
+                            <select value={filterForm.project_id} onChange={e => handleProjectChange(e.target.value)}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none">
+                                <option value="all">📁 كل المشاريع المصرح بها ({meta.projects?.length || 0})</option>
+                                {(meta.projects || []).map(p => (
+                                    <option key={p.id} value={p.id}>
+                                        {p.code ? `[${p.code}] ` : ''}{p.name}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* 3. Project Plan Filter */}
+                        <div className="space-y-1">
+                            <label className="text-slate-400 font-bold block">📋 3. الخطة / المسار</label>
+                            <select value={filterForm.plan_item_id} onChange={e => handlePlanChange(e.target.value)}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none">
+                                <option value="all">📋 كل الخطط والمسارات ({meta.plans?.length || 0})</option>
+                                {(meta.plans || []).map(pl => (
+                                    <option key={pl.id} value={pl.id}>
+                                        {pl.hierarchical_code ? `[${pl.hierarchical_code}] ` : ''}{pl.title}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* 4. Project Manager Filter */}
+                        <div className="space-y-1">
+                            <label className="text-slate-400 font-bold block">👤 4. مدير المشروع المسؤول</label>
+                            <select value={filterForm.manager_id} onChange={e => { setFilterForm(f => ({ ...f, manager_id: e.target.value })); setPage(1); }}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none">
+                                <option value="all">👤 كل مدراء المشاريع ({meta.managers?.length || 0})</option>
+                                {(meta.managers || []).map(m => (
+                                    <option key={m.id} value={m.id}>{m.name} ({m.email})</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* 5. Team Head Filter */}
+                        <div className="space-y-1">
+                            <label className="text-slate-400 font-bold block">👥 5. رئيس الفريق</label>
+                            <select value={filterForm.team_head_id} onChange={e => handleTeamHeadChange(e.target.value)}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none">
+                                <option value="all">👥 كل رؤساء الفرق ({meta.team_heads?.length || 0})</option>
+                                {(meta.team_heads || []).map(h => (
+                                    <option key={h.id} value={h.id}>
+                                        {h.name} {h.scope ? `[${h.scope === 'PROJECT' ? 'مشروع' : 'خطة'}]` : ''}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* 6. Team Member Filter */}
+                        <div className="space-y-1">
+                            <label className="text-slate-400 font-bold block">👷 6. عضو الفريق / المنفذ</label>
+                            <select value={filterForm.member_id} onChange={e => { setFilterForm(f => ({ ...f, member_id: e.target.value })); setPage(1); }}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none">
+                                <option value="all">👷 كل أعضاء الفرق والمنفذين ({meta.team_members?.length || 0})</option>
+                                {(meta.team_members || []).map(tm => (
+                                    <option key={tm.id} value={tm.id}>{tm.name}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* 7. Status Filter */}
+                        <div className="space-y-1">
+                            <label className="text-slate-400 font-bold block">🏷️ 7. حالة المهمة</label>
+                            <select value={filterForm.status} onChange={e => { setFilterForm(f => ({ ...f, status: e.target.value })); setPage(1); }}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none">
+                                {(meta.statuses || []).map(s => (
+                                    <option key={s.key} value={s.key}>{s.label}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* 8. Priority Filter */}
+                        <div className="space-y-1">
+                            <label className="text-slate-400 font-bold block">⚡ 8. مستوى الأولوية</label>
+                            <select value={filterForm.priority} onChange={e => { setFilterForm(f => ({ ...f, priority: e.target.value })); setPage(1); }}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none">
+                                {(meta.priorities || []).map(p => (
+                                    <option key={p.key} value={p.key}>{p.label}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* 9. Date Type & Range */}
+                        <div className="space-y-1">
+                            <label className="text-slate-400 font-bold block">📅 9. معيار التاريخ</label>
+                            <select value={filterForm.date_type} onChange={e => { setFilterForm(f => ({ ...f, date_type: e.target.value })); setPage(1); }}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none">
+                                {(meta.date_types || []).map(dt => (
+                                    <option key={dt.key} value={dt.key}>{dt.label}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="space-y-1">
+                            <label className="text-slate-400 font-bold block">🗓️ من تاريخ</label>
+                            <input type="date" lang="en" dir="ltr" value={filterForm.date_from}
+                                   onChange={e => { setFilterForm(f => ({ ...f, date_from: e.target.value })); setPage(1); }}
+                                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none" />
+                        </div>
+
+                        <div className="space-y-1">
+                            <label className="text-slate-400 font-bold block">🗓️ إلى تاريخ</label>
+                            <input type="date" lang="en" dir="ltr" value={filterForm.date_to}
+                                   onChange={e => { setFilterForm(f => ({ ...f, date_to: e.target.value })); setPage(1); }}
+                                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none" />
+                        </div>
+
+                        {/* 10. Search Query */}
+                        <div className="space-y-1">
+                            <label className="text-slate-400 font-bold block">🔍 بحث في النصوص والرموز</label>
+                            <div className="relative">
+                                <i className="fa-solid fa-magnifying-glass absolute top-1/2 -translate-y-1/2 start-3 text-slate-500 text-xs"></i>
+                                <input type="search" value={filterForm.query}
+                                       onChange={e => { setFilterForm(f => ({ ...f, query: e.target.value })); setPage(1); }}
+                                       placeholder="عنوان المهمة، الوصف، الرمز..."
+                                       className="w-full bg-slate-950 border border-slate-700 rounded-xl ps-9 pe-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none" />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Active Filter Chips */}
+                    {activeChips.length > 0 && (
+                        <div className="pt-3 border-t border-slate-800 flex flex-wrap items-center gap-2">
+                            <span className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                                <i className="fa-solid fa-tags text-blue-400 text-xs"></i>الفلاتر المطبقة ({activeChips.length}):
+                            </span>
+                            {activeChips.map(chip => (
+                                <span key={chip.key} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-950 text-blue-300 border border-blue-500/30 text-xs font-medium">
+                                    <span>{chip.label}</span>
+                                    <button type="button" onClick={chip.clear} className="text-slate-400 hover:text-rose-400" title="إزالة الفلتر">
+                                        <i className="fa-solid fa-xmark text-[10px]"></i>
+                                    </button>
+                                </span>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* 4. Executive KPI Summary Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+                    <div className="p-3.5 bg-slate-900 rounded-2xl border border-slate-800 text-center print-box shadow-sm">
+                        <span className="text-[11px] text-slate-400 block mb-1">إجمالي المشاريع</span>
+                        <strong className="text-xl font-extrabold text-blue-400">{summary.total_projects || 0}</strong>
+                    </div>
+                    <div className="p-3.5 bg-slate-900 rounded-2xl border border-slate-800 text-center print-box shadow-sm">
+                        <span className="text-[11px] text-slate-400 block mb-1">إجمالي الخطط</span>
+                        <strong className="text-xl font-extrabold text-indigo-400">{summary.total_plans || 0}</strong>
+                    </div>
+                    <div className="p-3.5 bg-slate-900 rounded-2xl border border-slate-800 text-center print-box shadow-sm">
+                        <span className="text-[11px] text-slate-400 block mb-1">إجمالي المهام</span>
+                        <strong className="text-xl font-extrabold text-white">{summary.total_tasks || 0}</strong>
+                    </div>
+                    <div className="p-3.5 bg-slate-900 rounded-2xl border border-slate-800 text-center print-box shadow-sm">
+                        <span className="text-[11px] text-slate-400 block mb-1">مهام مكتملة</span>
+                        <strong className="text-xl font-extrabold text-emerald-400">{summary.completed_tasks || 0}</strong>
+                    </div>
+                    <div className="p-3.5 bg-slate-900 rounded-2xl border border-slate-800 text-center print-box shadow-sm">
+                        <span className="text-[11px] text-slate-400 block mb-1">قيد التنفيذ</span>
+                        <strong className="text-xl font-extrabold text-amber-400">{summary.in_progress_tasks || 0}</strong>
+                    </div>
+                    <div className="p-3.5 bg-slate-900 rounded-2xl border border-slate-800 text-center print-box shadow-sm">
+                        <span className="text-[11px] text-slate-400 block mb-1">لم تبدأ</span>
+                        <strong className="text-xl font-extrabold text-slate-400">{summary.not_started_tasks || 0}</strong>
+                    </div>
+                    <div className="p-3.5 bg-slate-900 rounded-2xl border border-slate-800 text-center print-box shadow-sm">
+                        <span className="text-[11px] text-slate-400 block mb-1">مهام متأخرة</span>
+                        <strong className={cx('text-xl font-extrabold', summary.overdue_tasks > 0 ? 'text-rose-400' : 'text-emerald-400')}>
+                            {summary.overdue_tasks || 0}
+                        </strong>
+                    </div>
+                    <div className="p-3.5 bg-slate-900 rounded-2xl border border-slate-800 text-center print-box shadow-sm">
+                        <span className="text-[11px] text-slate-400 block mb-1">متوسط الإنجاز</span>
+                        <strong className="text-xl font-extrabold text-cyan-400">{summary.avg_progress || 0}%</strong>
+                    </div>
+                </div>
+
+                {/* 5. Report Preview Table */}
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-md print-box">
+                    <div className="p-4 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 no-print">
+                        <div className="flex items-center gap-2">
+                            <span className="font-bold text-white text-sm">نتائج التقرير التفصيلي</span>
+                            <span className="text-xs text-slate-400">
+                                (عرض {rows.length} من أصل {pagination.total || 0} سجل مطابق)
+                            </span>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                            <label className="text-xs text-slate-400 flex items-center gap-1.5">
+                                <span>عدد السجلات في الصفحة:</span>
+                                <select value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}
+                                        className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white focus:outline-none">
+                                    <option value={10}>10</option>
+                                    <option value={25}>25</option>
+                                    <option value={50}>50</option>
+                                    <option value={100}>100</option>
+                                </select>
+                            </label>
+                        </div>
+                    </div>
+
                     <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
+                        <table className="w-full text-xs min-w-[65rem]">
                             <thead>
-                                <tr className="border-b border-slate-800 text-slate-400 bg-slate-950/40 text-xs">
-                                    <th scope="col" className="p-3 font-bold text-start">المنتج</th>
-                                    <th scope="col" className="p-3 font-bold text-start">الجهة</th>
-                                    <th scope="col" className="p-3 font-bold text-start">الفترة</th>
-                                    <th scope="col" className="p-3 font-bold text-start">المهام</th>
-                                    <th scope="col" className="p-3 font-bold text-start">الإنجاز</th>
+                                <tr className="border-b border-slate-800 text-slate-400 bg-slate-950/60 font-bold">
+                                    <th className="p-3 text-start cursor-pointer hover:text-white" onClick={() => handleSort('p.name')}>
+                                        المشروع / الجهة {sortConfig.sort_by === 'p.name' && (sortConfig.sort_dir === 'asc' ? '▲' : '▼')}
+                                    </th>
+                                    <th className="p-3 text-start cursor-pointer hover:text-white" onClick={() => handleSort('pi.title')}>
+                                        الخطة / المسار {sortConfig.sort_by === 'pi.title' && (sortConfig.sort_dir === 'asc' ? '▲' : '▼')}
+                                    </th>
+                                    <th className="p-3 text-start">رمز المهمة</th>
+                                    <th className="p-3 text-start cursor-pointer hover:text-white" onClick={() => handleSort('t.title')}>
+                                        عنوان المهمة {sortConfig.sort_by === 't.title' && (sortConfig.sort_dir === 'asc' ? '▲' : '▼')}
+                                    </th>
+                                    <th className="p-3 text-start">المدير المسؤول</th>
+                                    <th className="p-3 text-start">رئيس الفريق</th>
+                                    <th className="p-3 text-start">فريق التنفيذ</th>
+                                    <th className="p-3 text-start cursor-pointer hover:text-white" onClick={() => handleSort('t.priority')}>
+                                        الأولوية {sortConfig.sort_by === 't.priority' && (sortConfig.sort_dir === 'asc' ? '▲' : '▼')}
+                                    </th>
+                                    <th className="p-3 text-start cursor-pointer hover:text-white" onClick={() => handleSort('t.status')}>
+                                        الحالة {sortConfig.sort_by === 't.status' && (sortConfig.sort_dir === 'asc' ? '▲' : '▼')}
+                                    </th>
+                                    <th className="p-3 text-start cursor-pointer hover:text-white" onClick={() => handleSort('t.progress')}>
+                                        الإنجاز % {sortConfig.sort_by === 't.progress' && (sortConfig.sort_dir === 'asc' ? '▲' : '▼')}
+                                    </th>
+                                    <th className="p-3 text-start cursor-pointer hover:text-white" onClick={() => handleSort('t.due_date')}>
+                                        تاريخ الاستحقاق {sortConfig.sort_by === 't.due_date' && (sortConfig.sort_dir === 'asc' ? '▲' : '▼')}
+                                    </th>
+                                    <th className="p-3 text-start">التأخير</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-800/60">
-                                {filteredProducts.map(p => {
-                                    const own = filteredTasks.filter(t => t && t.product_id === p.id);
-                                    return (
-                                        <tr key={p.id}>
-                                            <td className="p-3 text-white font-bold">{p.name}</td>
-                                            <td className="p-3 text-slate-300 whitespace-nowrap">{org(p.org).label}</td>
-                                            <td className="p-3 text-start whitespace-nowrap">
-                                                <div className="inline-flex items-center gap-1.5 font-mono text-xs text-slate-400">
-                                                    <span>{p.start_date || '—'}</span>
-                                                    <span className="text-slate-500">←</span>
-                                                    <span>{p.due_date || '—'}</span>
-                                                </div>
-                                            </td>
-                                            <td className="p-3 text-slate-300 whitespace-nowrap">{own.filter(isTaskDone).length} / {own.length}</td>
-                                            <td className="p-3 text-white font-bold tabular-nums">{productProgress(p, filteredTasks)}%</td>
-                                        </tr>
-                                    );
-                                })}
+                            <tbody className="divide-y divide-slate-800">
+                                {loading ? (
+                                    <tr>
+                                        <td colSpan={12} className="p-12 text-center text-slate-400">
+                                            <i className="fa-solid fa-circle-notch fa-spin text-2xl text-blue-400 mb-2"></i>
+                                            <p>جارٍ تحميل بيانات التقرير...</p>
+                                        </td>
+                                    </tr>
+                                ) : rows.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={12} className="p-12 text-center text-slate-400">
+                                            <i className="fa-solid fa-file-invoice text-3xl mb-2 text-slate-600"></i>
+                                            <p className="font-bold text-slate-300">لا توجد مهام أو سجلات مطابقة لمعايير البحث المحددة</p>
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    rows.map(r => {
+                                        const isDone = ['completed', 'approved'].includes(r.task_status);
+                                        const isDelayed = r.is_overdue || (r.delay_days > 0);
+                                        const statusMeta = TASK_STATUS[r.task_status] || { label: r.task_status, chip: 'bg-slate-800 text-slate-300' };
+                                        const priorityMeta = PRIORITY[r.task_priority] || { label: r.task_priority, chip: 'bg-slate-800 text-slate-300' };
+
+                                        return (
+                                            <tr key={r.task_id} className={cx('hover:bg-slate-800/30 transition-colors', isDelayed && !isDone && 'bg-rose-950/20')}>
+                                                <td className="p-3">
+                                                    <strong className="text-white block">{r.project_name}</strong>
+                                                    <span className="text-[10px] text-slate-400 font-mono">[{r.project_code || 'PRJ'}] · {r.project_org}</span>
+                                                </td>
+                                                <td className="p-3">
+                                                    <span className="text-slate-300 block">{r.plan_title || '—'}</span>
+                                                    {r.plan_track && <span className="text-[10px] text-slate-500 block">{r.plan_track}</span>}
+                                                </td>
+                                                <td className="p-3 font-mono text-cyan-400 text-[11px] whitespace-nowrap">
+                                                    {r.task_code || '—'}
+                                                </td>
+                                                <td className="p-3">
+                                                    <span className="text-white font-bold block">{r.task_title}</span>
+                                                    {r.task_description && (
+                                                        <span className="text-[11px] text-slate-400 block line-clamp-1">{r.task_description}</span>
+                                                    )}
+                                                </td>
+                                                <td className="p-3 text-slate-300 whitespace-nowrap">
+                                                    {r.manager_name || '—'}
+                                                </td>
+                                                <td className="p-3 text-slate-300 whitespace-nowrap">
+                                                    {Array.isArray(r.team_heads) && r.team_heads.length > 0
+                                                        ? r.team_heads.map(h => h.name).join('، ')
+                                                        : '—'}
+                                                </td>
+                                                <td className="p-3 text-slate-300">
+                                                    {Array.isArray(r.assignees) && r.assignees.length > 0
+                                                        ? r.assignees.map(a => a.name).join('، ')
+                                                        : (r.primary_assignee_name || '—')}
+                                                </td>
+                                                <td className="p-3 whitespace-nowrap">
+                                                    <span className={cx('px-2 py-0.5 rounded text-[10px] font-bold', priorityMeta.chip)}>
+                                                        {priorityMeta.label}
+                                                    </span>
+                                                </td>
+                                                <td className="p-3 whitespace-nowrap">
+                                                    <span className={cx('px-2 py-0.5 rounded text-[10px] font-bold border', statusMeta.chip)}>
+                                                        {statusMeta.label}
+                                                    </span>
+                                                </td>
+                                                <td className="p-3 whitespace-nowrap">
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="w-16 h-2 bg-slate-950 rounded-full overflow-hidden border border-slate-700">
+                                                            <div className={cx('h-full', isDone ? 'bg-emerald-500' : isDelayed ? 'bg-rose-500' : 'bg-blue-500')}
+                                                                 style={{ width: `${r.task_progress || 0}%` }}></div>
+                                                        </div>
+                                                        <span className="font-bold text-white tabular-nums">{r.task_progress || 0}%</span>
+                                                    </div>
+                                                </td>
+                                                <td className="p-3 font-mono text-slate-300 whitespace-nowrap" dir="ltr">
+                                                    {r.due_date ? String(r.due_date).slice(0, 10) : '—'}
+                                                </td>
+                                                <td className="p-3 whitespace-nowrap font-bold">
+                                                    {r.delay_days > 0 && !isDone ? (
+                                                        <span className="px-2 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-500/40 text-[10px]">
+                                                            {r.delay_days} يوم تأخير
+                                                        </span>
+                                                    ) : isDone ? (
+                                                        <span className="text-emerald-400 text-[10px]">مكتمل</span>
+                                                    ) : (
+                                                        <span className="text-slate-500 text-[10px]">—</span>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
+                                )}
                             </tbody>
                         </table>
+                    </div>
+
+                    {/* Pagination Bar */}
+                    {pagination.total_pages > 1 && (
+                        <div className="p-4 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3 no-print">
+                            <span className="text-xs text-slate-400">
+                                الصفحة {pagination.page} من إجمالي {pagination.total_pages} صفحات
+                            </span>
+                            <div className="flex items-center gap-1">
+                                <button type="button" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}
+                                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 rounded-lg text-xs font-bold">
+                                    <i className="fa-solid fa-chevron-right me-1"></i>السابق
+                                </button>
+                                <span className="px-3 py-1.5 bg-slate-950 text-white rounded-lg text-xs font-bold border border-slate-800">
+                                    {page}
+                                </span>
+                                <button type="button" disabled={page >= pagination.total_pages} onClick={() => setPage(p => Math.min(pagination.total_pages, p + 1))}
+                                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 rounded-lg text-xs font-bold">
+                                    التالي<i className="fa-solid fa-chevron-left ms-1"></i>
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* 6. Printable Approval / Signature Footer */}
+                <div className="print-only mt-8 pt-4 border-t border-slate-300 text-xs text-slate-700">
+                    <div className="grid grid-cols-3 gap-8 text-center">
+                        <div>
+                            <strong className="block mb-6">معد التقرير</strong>
+                            <p className="border-t border-slate-400 pt-1">{profile?.name || '................................'}</p>
+                        </div>
+                        <div>
+                            <strong className="block mb-6">رئيس الفريق / المشرف</strong>
+                            <p className="border-t border-slate-400 pt-1">........................................</p>
+                        </div>
+                        <div>
+                            <strong className="block mb-6">اعتماد مدير المشروع</strong>
+                            <p className="border-t border-slate-400 pt-1">........................................</p>
+                        </div>
                     </div>
                 </div>
             </div>
