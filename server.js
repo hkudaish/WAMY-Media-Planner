@@ -2473,12 +2473,8 @@ app.post('/api/system/reset-projects', requireActive, async (req, res, next) => 
       user: req.user,
       createBackupFirst
     });
-    await pool.query(
-      `insert into activity_log(actor_id,actor_name,org,action,type,entity_table,details,request_id,ip_address)
-       values($1,$2,$3,$4,'DELETE','system',$5,$6,$7)`,
-      [req.user.id, req.user.name, req.user.org, 'إعادة تهيئة النظام وحذف جميع بيانات المشاريع والمهام',
-       { wipedCounts: result.wipedCounts, preResetBackup: result.preResetBackup ? result.preResetBackup.id : null }, req.requestId, req.ip]
-    );
+    await writeAudit(pool, req, 'إعادة تهيئة النظام وحذف جميع بيانات المشاريع والمهام', 'DELETE', 'system', null,
+      { wipedCounts: result.wipedCounts, preResetBackup: result.preResetBackup ? result.preResetBackup.id : null });
     res.json({ success: true, message: 'تمت إعادة تهيئة بيانات المشاريع بنجاح مع المحافظة على حسابات المستخدمين والإعدادات.', result });
   } catch (error) { next(error); }
 });
