@@ -133,10 +133,13 @@ app.use('/api', (req, res, next) => {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
   const origin = req.headers.origin;
   if (!origin && !IS_PRODUCTION) return next();
-  if (!origin || !ALLOWED_ORIGINS.has(origin)) {
-    return res.status(403).json({ code: 'INVALID_ORIGIN', message: 'مصدر الطلب غير مسموح.' });
+  const host = req.headers.host;
+  const proto = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
+  const isSameHost = host && (origin === `${proto}://${host}` || origin === `http://${host}` || origin === `https://${host}`);
+  if (origin && (ALLOWED_ORIGINS.has(origin) || isSameHost || origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1'))) {
+    return next();
   }
-  next();
+  return res.status(403).json({ code: 'INVALID_ORIGIN', message: 'مصدر الطلب غير مسموح.' });
 });
 
 function parseCookies(header = '') {
