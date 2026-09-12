@@ -11,6 +11,7 @@ const { readWorkbook: readRawWorkbook } = require('./scripts/ooxml-reader');
 const { Pool, types } = require('pg');
 const projectHierarchyIO = require('./server/project-hierarchy-io');
 const backupManager = require('./server/backup-manager');
+const { ensureDatabaseMigrated } = require('./scripts/init-db');
 
 // PostgreSQL DATE has no time zone. Keep it as YYYY-MM-DD instead of letting
 // JavaScript shift local midnight to the previous UTC day during JSON output.
@@ -2915,6 +2916,11 @@ app.use((error, _req, res, _next) => {
 let server;
 (async () => {
   await pool.query('select 1');
+  try {
+    await ensureDatabaseMigrated();
+  } catch (migErr) {
+    console.warn('[DB Migration Warning]:', migErr.message);
+  }
   await Promise.all([
     pool.query('delete from sessions where expires_at <= now()'),
     pool.query(`delete from login_attempts where attempted_at < now() - interval '30 days'`)

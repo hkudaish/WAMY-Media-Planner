@@ -5,13 +5,13 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { Client } = require('pg');
 
-if (!process.env.DATABASE_URL) {
-  console.error('DATABASE_URL is missing. Copy .env.example to .env and update it.');
-  process.exit(1);
-}
+async function ensureDatabaseMigrated(connectionString) {
+  const dbUrl = connectionString || process.env.DATABASE_URL;
+  if (!dbUrl) {
+    throw new Error('DATABASE_URL is missing.');
+  }
 
-(async () => {
-  const target = new URL(process.env.DATABASE_URL);
+  const target = new URL(dbUrl);
   const databaseName = decodeURIComponent(target.pathname.slice(1));
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(databaseName)) {
     throw new Error('Database name must contain only letters, numbers, and underscores.');
@@ -19,12 +19,14 @@ if (!process.env.DATABASE_URL) {
   const adminUrl = new URL(target);
   adminUrl.pathname = '/postgres';
   const admin = new Client({ connectionString: adminUrl.toString() });
-  await admin.connect();
   try {
+    await admin.connect();
     const exists = await admin.query('select 1 from pg_database where datname=$1', [databaseName]);
     if (!exists.rowCount) await admin.query(`create database "${databaseName}"`);
+  } catch (err) {
+    console.warn('[DB Init] Direct database check notice:', err.message);
   } finally {
-    await admin.end();
+    await admin.end().catch(() => {});
   }
 
   const client = new Client({ connectionString: target.toString() });
@@ -48,6 +50,7 @@ if (!process.env.DATABASE_URL) {
       ['011_project_team_structure_and_plan_assignments', path.join(__dirname, '..', 'database', 'migrations', '011_project_team_structure_and_plan_assignments.sql')]
     ];
     for (const [version, file] of migrations) {
+      if (!fs.existsSync(file)) continue;
       const sql = fs.readFileSync(file, 'utf8');
       const normalizedSql = sql.replace(/\r\n/g, '\n').trim();
       const checksum = crypto.createHash('sha256').update(sql).digest('hex');
@@ -55,7 +58,6 @@ if (!process.env.DATABASE_URL) {
       const crlfChecksum = crypto.createHash('sha256').update(sql.replace(/\r?\n/g, '\r\n')).digest('hex');
       const applied = (await client.query('select checksum from schema_migrations where version=$1', [version])).rows[0];
       if (applied && applied.checksum !== checksum && applied.checksum !== normChecksum && applied.checksum !== crlfChecksum) {
-        // Check if normalized SQL matches
         console.warn(`[Migration] Updating checksum for existing applied migration ${version}`);
         await client.query('update schema_migrations set checksum=$1 where version=$2', [checksum, version]);
       }
@@ -75,9 +77,15 @@ if (!process.env.DATABASE_URL) {
     console.log('PostgreSQL schema is current.');
   } finally {
     await client.query('select pg_advisory_unlock(2026090501)').catch(() => {});
-    await client.end();
+    await client.end().catch(() => {});
   }
-})().catch(error => {
-  console.error('Database initialization failed:', error.message);
-  process.exit(1);
-});
+}
+
+module.exports = { ensureDatabaseMigrated };
+
+if (require.main === module) {
+  ensureDatabaseMigrated().catch(error => {
+    console.error('Database initialization failed:', error.message);
+    process.exit(1);
+  });
+}
