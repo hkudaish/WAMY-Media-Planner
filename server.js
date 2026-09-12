@@ -2453,7 +2453,15 @@ app.post('/api/backups/:id/restore', requireActive, async (req, res, next) => {
        result, req.requestId, req.ip]
     );
     res.json({ success: true, message: 'تمت استعادة النسخة الاحتياطية بنجاح.', result });
-  } catch (error) { next(error); }
+  } catch (error) {
+    if (/not found|غير موجود/i.test(error.message)) {
+      return res.status(404).json({ message: 'ملف النسخة الاحتياطية غير موجود.' });
+    }
+    if (/غير صالح|Malformed|Invalid/i.test(error.message)) {
+      return res.status(400).json({ message: error.message });
+    }
+    next(error);
+  }
 });
 
 app.delete('/api/backups/:id', requireActive, async (req, res, next) => {

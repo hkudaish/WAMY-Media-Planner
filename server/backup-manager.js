@@ -29,6 +29,7 @@ const HIERARCHY_TABLES = [
 ];
 
 const SYSTEM_TABLES = [
+  'organizations',
   'profiles',
   'app_settings'
 ];
@@ -133,7 +134,10 @@ async function createBackup({ type = 'FULL', notes = '', user = null, pool }) {
 function listBackups() {
   if (!fs.existsSync(BACKUPS_DIR)) return [];
 
-  const files = fs.readdirSync(BACKUPS_DIR).filter(f => f.endsWith('.json'));
+  const files = fs.readdirSync(BACKUPS_DIR).filter(f => {
+    if (f.startsWith('.') || f === 'backup-status.json' || !f.endsWith('.json')) return false;
+    return true;
+  });
   const backups = [];
 
   for (const file of files) {
@@ -141,8 +145,19 @@ function listBackups() {
     try {
       const stats = fs.statSync(filePath);
       const raw = fs.readFileSync(filePath, 'utf-8');
-      const parsed = JSON.parse(raw);
-      const manifest = parsed.manifest || {};
+      let parsed;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        continue;
+      }
+      
+      // Must have valid manifest and data object to be recognized as a valid DB backup
+      if (!parsed || typeof parsed !== 'object' || !parsed.manifest || !parsed.data || typeof parsed.data !== 'object') {
+        continue;
+      }
+
+      const manifest = parsed.manifest;
 
       backups.push({
         id: manifest.id || path.basename(file, '.json'),
@@ -150,7 +165,7 @@ function listBackups() {
         size: stats.size,
         sizeFormatted: formatBytes(stats.size),
         createdAt: manifest.createdAt || stats.mtime.toISOString(),
-        createdBy: manifest.createdBy || { name: 'Unknown' },
+        createdBy: manifest.createdBy || { name: 'النظام' },
         type: manifest.type || 'FULL',
         notes: manifest.notes || '',
         rowCounts: manifest.rowCounts || {},
@@ -170,12 +185,15 @@ function listBackups() {
  * Get the full filesystem path of a backup file
  */
 function getBackupFilePath(backupId) {
-  const safeId = path.basename(backupId);
+  const safeId = path.basename(String(backupId || ''));
+  if (!safeId || safeId === 'backup-status' || safeId === 'backup-status.json' || safeId.startsWith('.')) {
+    throw new Error(`معرف النسخة الاحتياطية غير صالح: ${backupId}`);
+  }
   const filename = safeId.endsWith('.json') ? safeId : `${safeId}.json`;
   const filePath = path.join(BACKUPS_DIR, filename);
 
   if (!fs.existsSync(filePath)) {
-    throw new Error(`Backup file not found: ${filename}`);
+    throw new Error(`ملف النسخة الاحتياطية غير موجود: ${filename}`);
   }
 
   return filePath;
@@ -209,8 +227,8 @@ async function restoreBackup(backupId, { pool, user = null }) {
   const manifest = parsed.manifest;
   const data = parsed.data;
 
-  if (!manifest || !data) {
-    throw new Error('Malformed backup structure: manifest or data missing');
+  if (!manifest || !data || typeof data !== 'object') {
+    throw new Error('ملف النسخة الاحتياطية غير صالح أو تالف (Manifest/Data missing)');
   }
 
   const client = await pool.connect();
@@ -218,6 +236,29 @@ async function restoreBackup(backupId, { pool, user = null }) {
   try {
     await client.query('BEGIN');
     await client.query("SET LOCAL app.allow_audit_mutation = 'on'");
+
+    // Restore/merge organizations if present
+    if (data.organizations && Array.isArray(data.organizations) && data.organizations.length > 0) {
+      for (const org of data.organizations) {
+        if (!org || !org.code) continue;
+        await client.query(
+          `INSERT INTO organizations (id, code, name, name_ar, name_en, short_name, description, color, logo_url, is_active, sort_order)
+           VALUES (COALESCE($1, gen_random_uuid()), $2, $3, $4, $5, $6, $7, COALESCE($8, '#3b82f6'), $9, COALESCE($10, true), COALESCE($11, 0))
+           ON CONFLICT (lower(code)) WHERE deleted_at IS NULL DO UPDATE SET
+             name = EXCLUDED.name,
+             name_ar = EXCLUDED.name_ar,
+             name_en = EXCLUDED.name_en,
+             short_name = EXCLUDED.short_name,
+             description = EXCLUDED.description,
+             color = EXCLUDED.color,
+             logo_url = EXCLUDED.logo_url,
+             is_active = EXCLUDED.is_active,
+             sort_order = EXCLUDED.sort_order,
+             updated_at = NOW()`,
+          [org.id || null, org.code, org.name || org.code, org.name_ar || null, org.name_en || null, org.short_name || null, org.description || null, org.color || '#3b82f6', org.logo_url || null, org.is_active ?? true, org.sort_order || 0]
+        );
+      }
+    }
 
     // 1. Clear tables in reverse hierarchical order
     const reverseHierarchy = [...HIERARCHY_TABLES].reverse();

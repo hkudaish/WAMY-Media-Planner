@@ -53,7 +53,23 @@ async function request(path, options = {}, expectedStatus = 200) {
 
         // 2. Test Project List, Deactivate, and Activate
         console.log('\n[2] Testing Project Activation / Deactivation...');
-        const projects = await request('/api/projects', { method: 'GET' }, 200);
+        let projects = await request('/api/projects', { method: 'GET' }, 200);
+        if (projects.length === 0) {
+            const newProj = await request('/api/projects', {
+                method: 'POST',
+                body: JSON.stringify({
+                    name: 'مشروع اختبار النسخ الاحتياطي',
+                    code: 'TEST-BCK-01',
+                    scope: 'اختبار النسخ والاستعادة',
+                    owner: 'إدارة الإعلام والاتصال',
+                    leadName: 'مسؤول النظام',
+                    status: 'active',
+                    startDate: '2026-01-01',
+                    endDate: '2026-12-31'
+                })
+            }, 201);
+            projects = [newProj];
+        }
         console.log(`Found ${projects.length} projects.`);
         assert.ok(projects.length > 0, 'At least one project is required.');
         const testProj = projects[0];
