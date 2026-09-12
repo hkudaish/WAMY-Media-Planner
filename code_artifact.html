@@ -5088,10 +5088,6 @@
                     <Field label="وصف ونطاق المشروع">
                         <textarea className={cx(inputClass, 'h-20')} value={form.description} onChange={set('description')} placeholder="وصف تفصيلي لنطاق عمل المشروع..." />
                     </Field>
-                    <div className="grid sm:grid-cols-2 gap-4">
-                        <Field label="الرؤية"><input className={inputClass} value={form.vision} onChange={set('vision')} placeholder="رؤية المشروع..." /></Field>
-                        <Field label="الرسالة"><input className={inputClass} value={form.mission} onChange={set('mission')} placeholder="رسالة المشروع..." /></Field>
-                    </div>
                     <div className="grid sm:grid-cols-4 gap-4">
                         <Field label="مدير المشروع">
                             <select className={inputClass} value={form.manager_id} onChange={set('manager_id')}>
