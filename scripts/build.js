@@ -60,7 +60,7 @@ const outputDir = path.join(root, 'dist');
     .replace(/\s*<script>\s*tailwind\.config\s*=\s*\{[\s\S]*?<\/script>\s*/, '\n')
     .replace(/\s*<!-- Exact pinned versions:[\s\S]*?<script src="https:\/\/unpkg\.com\/@babel\/standalone[^>]*><\/script>\s*/, '\n')
     .replace(match[0], `<script defer src="/assets/app.js?v=${buildVersion}"></script>`)
-    .replace('</head>', `    <link rel="stylesheet" href="/assets/app.css?v=${buildVersion}">\n</head>`);
+    .replace('</head>', `    <link rel="preload" href="/assets/app.js?v=${buildVersion}" as="script">\n    <link rel="preload" href="/assets/app.css?v=${buildVersion}" as="style">\n    <link rel="stylesheet" href="/assets/app.css?v=${buildVersion}">\n</head>`);
   await fs.writeFile(path.join(outputDir, 'index.html'), productionHtml);
   console.log('Production frontend built in dist/.');
 })().catch(error => {

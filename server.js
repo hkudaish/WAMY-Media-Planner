@@ -4,6 +4,7 @@ require('dotenv').config();
 const crypto = require('node:crypto');
 const path = require('node:path');
 const express = require('express');
+const compression = require('compression');
 const bcrypt = require('bcryptjs');
 const ExcelJS = require('exceljs');
 const multer = require('multer');
@@ -83,6 +84,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 *
 const app = express();
 if (process.env.TRUST_PROXY) app.set('trust proxy', process.env.TRUST_PROXY);
 app.disable('x-powered-by');
+app.use(compression({ threshold: 1024 }));
 app.use(express.json({ limit: '1mb' }));
 app.use((req, res, next) => {
   const suppliedRequestId = String(req.headers['x-request-id'] || '');
@@ -5142,7 +5144,13 @@ app.patch('/api/settings', requireActive, async (req, res, next) => {
 });
 
 const frontendDir = IS_PRODUCTION ? path.join(__dirname, 'dist') : __dirname;
-if (IS_PRODUCTION) app.use('/assets', express.static(path.join(frontendDir, 'assets'), { maxAge: '1h' }));
+if (IS_PRODUCTION) {
+  app.use('/assets', express.static(path.join(frontendDir, 'assets'), {
+    maxAge: '1y',
+    immutable: true,
+    etag: true
+  }));
+}
 app.get('/', (_req, res) => {
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.setHeader('Pragma', 'no-cache');
