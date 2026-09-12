@@ -10,7 +10,7 @@ async function run() {
     await pool.query("DELETE FROM products WHERE code LIKE 'PRD-TEST%'");
 
     console.log('--- 1. Testing Project & Product Hierarchical Codes ---');
-    const { rows: projects } = await pool.query('SELECT id, code, hierarchical_code, name FROM projects ORDER BY created_at ASC');
+    const { rows: projects } = await pool.query('SELECT id, code, hierarchical_code, name FROM projects WHERE deleted_at IS NULL ORDER BY created_at ASC');
     console.log(`Found ${projects.length} projects:`);
     projects.forEach(p => console.log(`  - [${p.hierarchical_code || 'MISSING'}] (${p.code}) ${p.name}`));
     if (projects.some(p => !p.hierarchical_code)) {
@@ -67,8 +67,23 @@ async function run() {
     }
 
     console.log('--- 4. Testing End-to-End Task Creation with 4-Tier Hierarchy ---');
-    const { rows: matchingPlanItems } = await pool.query('SELECT id, project_id, track, phase FROM master_plan_items WHERE project_id = $1 LIMIT 1', [prj1.id]);
-    const planItem = matchingPlanItems[0];
+    let planItem;
+    let targetProject = prj1;
+    const { rows: existingPlanItems } = await pool.query('SELECT id, project_id, track, phase FROM master_plan_items WHERE project_id IS NOT NULL LIMIT 1');
+    if (existingPlanItems.length > 0) {
+        planItem = existingPlanItems[0];
+        targetProject = { id: planItem.project_id };
+    } else {
+        const { rows: newPI } = await pool.query(`
+            INSERT INTO master_plan_items (id, project_id, hierarchical_code, title, org, track, phase)
+            VALUES (gen_random_uuid(), $1, 'PRJ-TEST-PLN-01', 'بند خطة تجريبي', 'wamy', 'المسار الأول', 'المرحلة الأولى')
+            RETURNING id, project_id, track, phase;
+        `, [prj1.id]);
+        planItem = newPI[0];
+    }
+
+    // Ensure product matches the targetProject
+    await pool.query('UPDATE products SET project_id = $1 WHERE id = $2', [targetProject.id, tempProd[0].id]);
 
     const { rows: insertedTask } = await pool.query(`
         INSERT INTO tasks (
@@ -78,7 +93,7 @@ async function run() {
             gen_random_uuid(), $1, $2, $3, $4, 'مهمة هرمية متكاملة', 'مخرج تجريبي', 'wamy',
             NOW(), NOW() + interval '3 days', CURRENT_DATE, CURRENT_DATE + 3, 'not_started', 0
         ) RETURNING id, project_id, plan_item_id, product_id, title;
-    `, [prj1.id, planItem.id, tempProd[0].id, planItem.phase || 'المرحلة الأولى']);
+    `, [targetProject.id, planItem.id, tempProd[0].id, planItem.phase || 'المرحلة الأولى']);
 
     console.log(`PASS: Created task ${insertedTask[0].id} with complete 4-tier hierarchy.`);
 

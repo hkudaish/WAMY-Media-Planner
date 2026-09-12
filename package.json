@@ -25,7 +25,8 @@
     "test:security": "node scripts/test-security.js",
     "test:hierarchy": "node scripts/test-hierarchy-coding.js",
     "test:enhanced": "node scripts/test-enhanced-features.js",
-    "test": "node scripts/check.js && node scripts/test-enhanced-features.js"
+    "test:procedures": "node scripts/test-task-execution-procedures.js",
+    "test": "node scripts/check.js && node scripts/test-enhanced-features.js && node scripts/test-task-execution-procedures.js"
   },
   "engines": {
     "node": ">=20"

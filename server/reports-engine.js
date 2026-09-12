@@ -251,6 +251,57 @@ async function getFilterMetadata(pool, user, currentFilters = {}) {
     teamMembers = tmRes.rows;
   }
 
+  // 7. Get Tasks (cascading by project / plan / team head)
+  let tasks = [];
+  if (accessibleProjectIds.length > 0) {
+    let tQuery = `
+      select distinct t.id, t.title, t.status, t.priority, t.project_id, t.plan_item_id, p.name as project_name
+        from tasks t
+        join projects p on p.id = t.project_id
+       where t.deleted_at is null and p.deleted_at is null
+         and t.project_id = any($1::uuid[])
+    `;
+    const tParams = [accessibleProjectIds];
+    let tIdx = 2;
+    if (currentFilters.project_id && currentFilters.project_id !== 'all') {
+      tQuery += ` and t.project_id = $${tIdx++}`;
+      tParams.push(currentFilters.project_id);
+    }
+    if (currentFilters.plan_item_id && currentFilters.plan_item_id !== 'all') {
+      tQuery += ` and t.plan_item_id = $${tIdx++}`;
+      tParams.push(currentFilters.plan_item_id);
+    }
+    tQuery += ` order by t.title limit 200`;
+    const tRes = await pool.query(tQuery, tParams);
+    tasks = tRes.rows;
+  }
+
+  // 8. Get Execution Procedures (cascading by selected task)
+  let procedures = [];
+  if (currentFilters.task_id && currentFilters.task_id !== 'all') {
+    const pRes = await pool.query(
+      `select id, task_id, title, status, progress, order_index
+         from execution_procedures
+        where task_id = $1 and deleted_at is null
+        order by order_index, title`,
+      [currentFilters.task_id]
+    );
+    procedures = pRes.rows;
+  }
+
+  // 9. Get Execution Sub-Procedures (cascading by selected procedure)
+  let subProcedures = [];
+  if (currentFilters.procedure_id && currentFilters.procedure_id !== 'all') {
+    const spRes = await pool.query(
+      `select id, procedure_id, title, status, progress, order_index
+         from execution_sub_procedures
+        where procedure_id = $1 and deleted_at is null
+        order by order_index, title`,
+      [currentFilters.procedure_id]
+    );
+    subProcedures = spRes.rows;
+  }
+
   return {
     organizations,
     projects,
@@ -258,14 +309,23 @@ async function getFilterMetadata(pool, user, currentFilters = {}) {
     managers,
     team_heads: teamHeads,
     team_members: teamMembers,
+    tasks,
+    procedures,
+    sub_procedures: subProcedures,
     statuses: [
       { key: 'all', label: 'كل الحالات' },
-      { key: 'not_started', label: 'لم تبدأ (Not Started)' },
-      { key: 'in_progress', label: 'قيد التنفيذ (In Progress)' },
-      { key: 'under_review', label: 'قيد المراجعة والاعتماد' },
-      { key: 'completed', label: 'مكتملة (Completed)' },
-      { key: 'delayed', label: 'متأخرة عن موعدها (Overdue)' },
-      { key: 'blocked', label: 'متوقفة / معلقة (On Hold)' }
+      { key: 'not_started', label: 'لم تبدأ' },
+      { key: 'in_progress', label: 'قيد التنفيذ' },
+      { key: 'on_hold', label: 'متوقفة مؤقتًا' },
+      { key: 'awaiting_approval', label: 'بانتظار الاعتماد' },
+      { key: 'needs_revision', label: 'تحتاج إلى تعديل' },
+      { key: 'completed_approved', label: 'مكتملة ومعتمدة' },
+      { key: 'cancelled', label: 'ملغاة' }
+    ],
+    delay_statuses: [
+      { key: 'all', label: 'كل الحالات الزمنية' },
+      { key: 'on_time', label: 'ضمن الخطة / غير متأخرة' },
+      { key: 'delayed', label: 'متأخرة عن موعدها (Overdue)' }
     ],
     priorities: [
       { key: 'all', label: 'كل الأولويات' },
@@ -404,10 +464,19 @@ function buildReportQueryClause(user, filters) {
   // 8. Status filter
   if (filters.status && filters.status !== 'all') {
     if (filters.status === 'delayed') {
-      conditions.push(`(t.status::text not in ('completed', 'approved', 'cancelled') and t.due_date is not null and t.due_date < current_date)`);
+      conditions.push(`(t.status::text not in ('completed_approved', 'completed', 'approved', 'cancelled') and ((t.scheduled_due_at is not null and t.scheduled_due_at < now()) or (t.due_date is not null and t.due_date < current_date)))`);
     } else {
       conditions.push(`t.status = $${idx++}`);
       params.push(filters.status);
+    }
+  }
+
+  // 8b. Delay Status filter (Independent calculated indicator)
+  if (filters.delay_status && filters.delay_status !== 'all') {
+    if (filters.delay_status === 'delayed') {
+      conditions.push(`(t.status::text not in ('completed_approved', 'completed', 'approved', 'cancelled') and ((t.scheduled_due_at is not null and t.scheduled_due_at < now()) or (t.due_date is not null and t.due_date < current_date)))`);
+    } else if (filters.delay_status === 'on_time') {
+      conditions.push(`(t.status::text in ('completed_approved', 'completed', 'approved', 'cancelled') or ((t.scheduled_due_at is null or t.scheduled_due_at >= now()) and (t.due_date is null or t.due_date >= current_date)))`);
     }
   }
 
@@ -417,7 +486,25 @@ function buildReportQueryClause(user, filters) {
     params.push(filters.priority);
   }
 
-  // 10. Date Range filter
+  // 10. Task filter
+  if (filters.task_id && filters.task_id !== 'all') {
+    conditions.push(`t.id = $${idx++}`);
+    params.push(filters.task_id);
+  }
+
+  // 11. Procedure filter
+  if (filters.procedure_id && filters.procedure_id !== 'all') {
+    conditions.push(`exists (select 1 from execution_procedures ep where ep.task_id = t.id and ep.id = $${idx++} and ep.deleted_at is null)`);
+    params.push(filters.procedure_id);
+  }
+
+  // 12. Sub-Procedure filter
+  if (filters.sub_procedure_id && filters.sub_procedure_id !== 'all') {
+    conditions.push(`exists (select 1 from execution_sub_procedures esp where esp.task_id = t.id and esp.id = $${idx++} and esp.deleted_at is null)`);
+    params.push(filters.sub_procedure_id);
+  }
+
+  // 13. Date Range filter
   const dateField = ['due_date', 'planned_start', 'completed_at', 'created_at'].includes(filters.date_type)
     ? filters.date_type
     : 'due_date';
@@ -431,7 +518,7 @@ function buildReportQueryClause(user, filters) {
     params.push(filters.date_to);
   }
 
-  // 11. Progress range
+  // 14. Progress range
   if (filters.min_progress !== undefined && filters.min_progress !== null && filters.min_progress !== '') {
     conditions.push(`t.progress >= $${idx++}`);
     params.push(Number(filters.min_progress));
@@ -441,12 +528,12 @@ function buildReportQueryClause(user, filters) {
     params.push(Number(filters.max_progress));
   }
 
-  // 12. Search query
+  // 15. Search query
   if (filters.search && String(filters.search).trim()) {
     const q = `%${String(filters.search).trim()}%`;
     conditions.push(`(
       t.title ilike $${idx}
-      or t.code ilike $${idx}
+      or coalesce(t.import_key, '') ilike $${idx}
       or coalesce(t.description, '') ilike $${idx}
       or p.name ilike $${idx}
       or coalesce(pi.title, '') ilike $${idx}
@@ -485,12 +572,16 @@ async function queryReports(pool, user, filters = {}, pagination = {}) {
       count(distinct p.id)::int as total_projects,
       count(distinct pi.id)::int as total_plans,
       count(distinct t.id)::int as total_tasks,
-      count(distinct t.id) filter (where t.status::text in ('completed', 'approved'))::int as completed_tasks,
-      count(distinct t.id) filter (where t.status::text in ('in_progress', 'under_review'))::int as in_progress_tasks,
+      count(distinct t.id) filter (where t.status::text in ('completed_approved', 'completed', 'approved'))::int as completed_tasks,
+      count(distinct t.id) filter (where t.status::text in ('in_progress', 'awaiting_approval', 'needs_revision', 'under_review'))::int as in_progress_tasks,
       count(distinct t.id) filter (where t.status::text in ('not_started', 'planning', 'scheduled'))::int as not_started_tasks,
-      count(distinct t.id) filter (where t.status::text not in ('completed', 'approved', 'cancelled') and t.due_date is not null and t.due_date < current_date)::int as overdue_tasks,
+      count(distinct t.id) filter (where t.status::text not in ('completed_approved', 'completed', 'approved', 'cancelled') and ((t.scheduled_due_at is not null and t.scheduled_due_at < now()) or (t.due_date is not null and t.due_date < current_date)))::int as overdue_tasks,
       coalesce(round(avg(t.progress)), 0)::int as avg_progress,
-      coalesce(sum(greatest(0, current_date - t.due_date)) filter (where t.status::text not in ('completed', 'approved', 'cancelled') and t.due_date is not null and t.due_date < current_date), 0)::int as total_delay_days
+      coalesce(sum(greatest(0, current_date - t.due_date)) filter (where t.status::text not in ('completed_approved', 'completed', 'approved', 'cancelled') and t.due_date is not null and t.due_date < current_date), 0)::int as total_delay_days,
+      coalesce((select count(*)::int from execution_procedures ep where ep.task_id = any(array_agg(t.id)) and ep.deleted_at is null), 0)::int as total_procedures,
+      coalesce((select count(*)::int from execution_procedures ep where ep.task_id = any(array_agg(t.id)) and ep.status = 'completed' and ep.deleted_at is null), 0)::int as completed_procedures,
+      coalesce((select count(*)::int from execution_sub_procedures esp where esp.task_id = any(array_agg(t.id)) and esp.deleted_at is null), 0)::int as total_sub_procedures,
+      coalesce((select count(*)::int from execution_sub_procedures esp where esp.task_id = any(array_agg(t.id)) and esp.status = 'completed' and esp.deleted_at is null), 0)::int as completed_sub_procedures
     ${fromClause}
     where ${whereSql}
   `;
@@ -504,7 +595,11 @@ async function queryReports(pool, user, filters = {}, pagination = {}) {
     not_started_tasks: 0,
     overdue_tasks: 0,
     avg_progress: 0,
-    total_delay_days: 0
+    total_delay_days: 0,
+    total_procedures: 0,
+    completed_procedures: 0,
+    total_sub_procedures: 0,
+    completed_sub_procedures: 0
   };
 
   // 2. Detailed Rows query (Paginated)
@@ -528,12 +623,12 @@ async function queryReports(pool, user, filters = {}, pagination = {}) {
       t.actual_completion as completed_at,
       t.notes as task_notes,
       case
-        when t.status::text in ('completed', 'approved') then false
-        when t.due_date is not null and t.due_date < current_date then true
+        when t.status::text in ('completed_approved', 'completed', 'approved') then false
+        when (t.scheduled_due_at is not null and t.scheduled_due_at < now()) or (t.due_date is not null and t.due_date < current_date) then true
         else false
       end as is_overdue,
       case
-        when t.status::text not in ('completed', 'approved') and t.due_date is not null and t.due_date < current_date
+        when t.status::text not in ('completed_approved', 'completed', 'approved', 'cancelled') and t.due_date is not null and t.due_date < current_date
           then (current_date - t.due_date)::int
         else 0
       end as delay_days,
@@ -555,6 +650,25 @@ async function queryReports(pool, user, filters = {}, pagination = {}) {
       primary_assignee.id as primary_assignee_id,
       primary_assignee.name as primary_assignee_name,
       primary_assignee.email as primary_assignee_email,
+      coalesce(
+        (select count(*)::int from execution_procedures ep where ep.task_id = t.id and ep.deleted_at is null),
+        0
+      ) as procedures_count,
+      coalesce(
+        (select count(*)::int from execution_procedures ep where ep.task_id = t.id and ep.status = 'completed' and ep.deleted_at is null),
+        0
+      ) as completed_procedures_count,
+      coalesce(
+        (select json_agg(json_build_object(
+           'id', ep.id, 'title', ep.title, 'status', ep.status, 'progress', ep.progress,
+           'order_index', ep.order_index, 'due_at', ep.due_at, 'actual_start', ep.actual_start,
+           'actual_completion', ep.actual_completion, 'expected_duration', ep.expected_duration,
+           'duration_unit', ep.duration_unit
+         ) order by ep.order_index)
+           from execution_procedures ep
+          where ep.task_id = t.id and ep.deleted_at is null),
+        '[]'::json
+      ) as procedures,
       coalesce(
         (select json_agg(json_build_object('id', u.id, 'name', u.name, 'email', u.email, 'position', u.position))
            from task_assignees ta
@@ -662,11 +776,15 @@ async function exportReportsExcel(pool, user, filters = {}) {
   const statusMap = {
     not_started: 'لم تبدأ',
     in_progress: 'قيد التنفيذ',
-    under_review: 'قيد المراجعة',
-    completed: 'مكتملة',
-    closed: 'مغلقة',
-    blocked: 'معلقة',
-    cancelled: 'ملغاة'
+    on_hold: 'متوقفة مؤقتًا',
+    awaiting_approval: 'بانتظار الاعتماد',
+    needs_revision: 'تحتاج إلى تعديل',
+    completed_approved: 'مكتملة ومعتمدة',
+    cancelled: 'ملغاة',
+    completed: 'مكتملة ومعتمدة',
+    approved: 'مكتملة ومعتمدة',
+    under_review: 'بانتظار الاعتماد',
+    blocked: 'متوقفة مؤقتًا'
   };
 
   const priorityMap = {

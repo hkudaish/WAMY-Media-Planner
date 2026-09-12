@@ -42,21 +42,20 @@ async function runTests() {
     console.log('✓ Test profiles initialized.');
 
     // 2. Create test project assigned to PM
-    const projId = '77777777-7777-7777-7777-777777777777';
-    await client.query('delete from projects where id = $1', [projId]);
+    const projId = crypto.randomUUID();
+    const projCode = `PRJ-TEAM-${Date.now().toString().slice(-4)}`;
     const projRes = await client.query(
       `insert into projects (id, code, hierarchical_code, name, org, manager_id, status)
-       values ($1, 'PRJ-TEAM-TEST', 'PRJ-TEAM-TEST', 'مشروع اختبار هيكل الفريق', 'WAMY', $2, 'active')
+       values ($1, $2, $2, 'مشروع اختبار هيكل الفريق', 'wamy', $3, 'active')
        returning *`,
-      [projId, uPM]
+      [projId, projCode, uPM]
     );
     assert.strictEqual(projRes.rows[0].manager_id, uPM, 'Project manager must be uPM');
     console.log('✓ Project created with direct manager_id.');
 
     // 3. Create test plan items
-    const plan1Id = '88888888-8888-8888-8888-888888888881';
-    const plan2Id = '88888888-8888-8888-8888-888888888882';
-    await client.query('delete from master_plan_items where id in ($1, $2)', [plan1Id, plan2Id]);
+    const plan1Id = crypto.randomUUID();
+    const plan2Id = crypto.randomUUID();
     await client.query(
       `insert into master_plan_items (id, external_id, project_id, title, track, responsible_org)
        values ($1, 'PLAN-EXT-1', $2, 'خطة الإنتاج المرئي', 'الإعلام', 'WAMY'),

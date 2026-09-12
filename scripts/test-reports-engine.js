@@ -44,25 +44,23 @@ async function runTests() {
     console.log('✓ Test user profiles verified.');
 
     // 2. Create test project, plan, team head, team member, and tasks
-    const projId = '77777777-7777-7777-7777-777777777777';
-    await client.query('delete from projects where id = $1', [projId]);
+    const projId = crypto.randomUUID();
+    const projCode = `PRJ-REP-${Date.now().toString().slice(-4)}`;
     await client.query(
       `insert into projects (id, code, hierarchical_code, name, org, manager_id, status)
-       values ($1, 'PRJ-REP-01', 'PRJ-REP-01', 'مشروع تقارير اختباري', 'WAMY', $2, 'active')`,
-      [projId, uPM]
+       values ($1, $2, $2, 'مشروع تقارير اختباري', 'wamy', $3, 'active')`,
+      [projId, projCode, uPM]
     );
 
-    const plan1Id = '88888888-8888-8888-8888-888888888881';
-    await client.query('delete from master_plan_items where id = $1', [plan1Id]);
+    const plan1Id = crypto.randomUUID();
     await client.query(
       `insert into master_plan_items (id, project_id, external_id, hierarchical_code, title, responsible_org, baseline_status)
-       values ($1, $2, 'PLN-REP-01', 'PRJ-REP-01-01', 'خطة التقارير الأولى', 'WAMY', 'not_started')`,
-      [plan1Id, projId]
+       values ($1, $2, 'PLN-REP-01', $3, 'خطة التقارير الأولى', 'wamy', 'not_started')`,
+      [plan1Id, projId, `${projCode}-01`]
     );
 
     // Team head assignment on project
-    const assignHeadId = '99999999-9999-9999-9999-999999999991';
-    await client.query('delete from project_team_assignments where id = $1', [assignHeadId]);
+    const assignHeadId = crypto.randomUUID();
     await client.query(
       `insert into project_team_assignments (id, project_id, plan_item_id, team_head_id, scope, title, is_active)
        values ($1, $2, null, $3, 'PROJECT', 'رئيس الفريق البرمجي', true)`,
@@ -70,8 +68,7 @@ async function runTests() {
     );
 
     // Team member assignment under head
-    const memberAssignId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
-    await client.query('delete from project_team_members where id = $1', [memberAssignId]);
+    const memberAssignId = crypto.randomUUID();
     await client.query(
       `insert into project_team_members (id, assignment_id, user_id, role_title, is_active)
        values ($1, $2, $3, 'مبرمج', true)`,
@@ -79,21 +76,20 @@ async function runTests() {
     );
 
     // Create 2 tasks: 1 assigned to uMember (delayed), 1 completed
-    const t1Id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb01';
-    const t2Id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbb02';
-    await client.query('delete from tasks where id in ($1, $2)', [t1Id, t2Id]);
+    const t1Id = crypto.randomUUID();
+    const t2Id = crypto.randomUUID();
     
     // Task 1: Overdue task
     await client.query(
       `insert into tasks (id, project_id, plan_item_id, org, title, status, priority, progress, planned_start, due_date, assignee_id)
-       values ($1, $2, $3, 'WAMY', 'مهمة تقرير متأخرة', 'in_progress', 'high', 40, '2026-01-01', '2026-02-01', $4)`,
+       values ($1, $2, $3, 'wamy', 'مهمة تقرير متأخرة', 'in_progress', 'high', 40, '2026-01-01', '2026-02-01', $4)`,
       [t1Id, projId, plan1Id, uMember]
     );
 
     // Task 2: Completed task
     await client.query(
       `insert into tasks (id, project_id, plan_item_id, org, title, status, priority, progress, planned_start, due_date, assignee_id)
-       values ($1, $2, $3, 'WAMY', 'مهمة تقرير مكتملة', 'completed', 'normal', 100, '2026-01-01', '2026-02-01', $4)`,
+       values ($1, $2, $3, 'wamy', 'مهمة تقرير مكتملة', 'completed', 'normal', 100, '2026-01-01', '2026-02-01', $4)`,
       [t2Id, projId, plan1Id, uMember]
     );
 

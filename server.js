@@ -227,7 +227,9 @@ const ENUMS = {
   role: new Set(['admin','supervisor','project_manager','department_manager','team_lead','user','reviewer','approver','read_only']),
   userStatus: new Set(['pending', 'active', 'disabled']),
   org: new Set(['wamy', 'imaan']),
-  taskStatus: new Set(['not_started', 'in_progress', 'blocked', 'completed', 'approved']),
+  taskStatus: new Set(['not_started', 'in_progress', 'on_hold', 'awaiting_approval', 'needs_revision', 'completed_approved', 'cancelled']),
+  procedureStatus: new Set(['not_started', 'ready', 'in_progress', 'on_hold', 'waiting_review', 'needs_revision', 'completed', 'delayed', 'cancelled']),
+  durationUnit: new Set(['minutes', 'hours', 'days', 'weeks']),
   productStatus: new Set(['not_started', 'in_progress', 'completed', 'approved', 'cancelled', 'archived']),
   priority: new Set(['low', 'normal', 'high', 'critical']),
   fileFolder: new Set(['proposals', 'approved']),
@@ -400,13 +402,20 @@ const ORG_LABELS = new Map([['الندوة', 'wamy'], ['الندوة wamy', 'wam
 const TASK_STATUS_LABELS = new Map([
   ['لم تبدأ', 'not_started'], ['not_started', 'not_started'],
   ['قيد التنفيذ', 'in_progress'], ['in_progress', 'in_progress'],
-  ['متعثرة', 'blocked'], ['blocked', 'blocked'],
-  ['منجزة', 'completed'], ['مكتملة', 'completed'], ['completed', 'completed'],
-  ['معتمدة', 'approved'], ['approved', 'approved']
+  ['متوقفة مؤقتًا', 'on_hold'], ['متوقفة مؤقتا', 'on_hold'], ['on_hold', 'on_hold'], ['blocked', 'on_hold'], ['متعثرة', 'on_hold'],
+  ['بانتظار الاعتماد', 'awaiting_approval'], ['awaiting_approval', 'awaiting_approval'], ['waiting_approval', 'awaiting_approval'], ['تم التنفيذ - بانتظار الاعتماد', 'awaiting_approval'],
+  ['تحتاج إلى تعديل', 'needs_revision'], ['needs_revision', 'needs_revision'],
+  ['مكتملة ومعتمدة', 'completed_approved'], ['completed_approved', 'completed_approved'], ['منجزة', 'completed_approved'], ['مكتملة', 'completed_approved'], ['معتمدة', 'completed_approved'], ['completed', 'completed_approved'], ['approved', 'completed_approved'],
+  ['ملغاة', 'cancelled'], ['ملغية', 'cancelled'], ['cancelled', 'cancelled']
 ]);
 const TASK_STATUS_EXPORT = {
-  not_started: 'لم تبدأ', in_progress: 'قيد التنفيذ', blocked: 'متعثرة',
-  completed: 'منجزة', approved: 'معتمدة'
+  not_started: 'لم تبدأ',
+  in_progress: 'قيد التنفيذ',
+  on_hold: 'متوقفة مؤقتًا',
+  awaiting_approval: 'بانتظار الاعتماد',
+  needs_revision: 'تحتاج إلى تعديل',
+  completed_approved: 'مكتملة ومعتمدة',
+  cancelled: 'ملغاة'
 };
 const STANDARD_PLAN_HEADERS = ['رمز المنتج','اسم المنتج','اسم المرحلة','اسم المهمة','وصف المهمة','الجهة المسؤولة','بريد المسؤول','تاريخ البدء','تاريخ الاستحقاق','المدة بالأيام','الأولوية','الملاحظات'];
 const LEGACY_PLAN_HEADERS = ['م','المنتج','وصف المهمة','التاريخ','الحالة','الفئة','المسؤول عن المتابعة','ملاحظات','أيام حتى الموعد','الوضع الزمني'];
@@ -526,7 +535,9 @@ const FIELDS = {
   profiles: ['name','email','role','org','position','department','team','data_scope','status','permissions','avatar_url'],
   projects: ['code','hierarchical_code','name','description','objective','vision','mission','org','manager_id','planned_start','planned_end','status','budget','currency','source_notes','classification'],
   products: ['code','hierarchical_code','legacy_code','project_id','plan_track','name','content','target_qty','org','manager_id','start_date','due_date','status','manual_progress','active_duration_days','recurrence','allow_multiple_tasks','is_active','drive_folder_id','drive_proposals_folder_id','drive_approved_folder_id'],
-  tasks: ['product_id','project_id','plan_item_id','title','description','goal','required_outputs','org','assignee_id','priority','status','progress','planned_start','due_date','scheduled_start_at','scheduled_due_at','actual_completion','active_duration','phase_name','notes','import_key','created_by','task_mode'],
+  tasks: ['product_id','project_id','plan_item_id','title','description','goal','required_outputs','org','assignee_id','priority','status','progress','planned_start','due_date','scheduled_start_at','scheduled_due_at','actual_completion','active_duration','phase_name','notes','import_key','created_by','task_mode','actual_start_at','started_by_id','completion_submitted_at','completion_submitted_by_id','completion_approved_at','completion_approved_by_id','hold_reason','hold_at','hold_by_id','expected_resume_at','original_due_at','extension_count'],
+  execution_procedures: ['task_id','project_id','plan_item_id','assigned_user_id','team_head_id','order_index','title','description','status','progress','progress_mode','planned_start','expected_duration','duration_unit','due_at','actual_start','actual_completion','actual_duration','priority','notes','attachments','related_links','created_by'],
+  execution_sub_procedures: ['procedure_id','task_id','project_id','plan_item_id','assigned_user_id','order_index','title','description','status','progress','planned_start','expected_duration','duration_unit','due_at','actual_start','actual_completion','actual_duration','priority','notes','attachments','related_links','created_by'],
   files: ['name','product_id','folder','size_label','file_type','uploader_id','org','drive_url','version','status','approved_by','approved_at','drive_file_id','drive_view_link','drive_icon_link','mime_type','size_bytes','drive_parent_id'],
   organizations: ['code','name','name_en','description','is_active'],
   settings: ['drive_client_id','drive_picker_api_key','drive_root_folder_id','drive_root_folder_name','updated_by']
@@ -2386,6 +2397,2115 @@ app.get('/api/tasks/:id/schedule-history', requireActive, async (req, res, next)
     const { rows } = await pool.query('select * from task_schedule_history where task_id=$1 order by changed_at desc', [req.params.id]);
     res.json(rows);
   } catch (error) { next(error); }
+});
+
+/* ------------------------------------------------------------------
+   Task Execution Procedures & Sub-Procedures System
+   Hierarchy: Project -> Project Plan -> Task -> Procedure -> Sub-Procedure
+   ------------------------------------------------------------------ */
+
+async function getTaskProcedureContext(clientOrPool, taskId, procId = null, subProcId = null) {
+  let query = `
+    select t.id as task_id, t.project_id, t.plan_item_id, t.assignee_id as task_assignee_id, t.org as task_org,
+           t.status as task_status, t.progress as task_progress, t.title as task_title,
+           p.manager_id as project_manager_id, p.org as project_org
+      from tasks t
+      left join projects p on p.id = t.project_id
+     where t.id = $1 and t.deleted_at is null
+  `;
+  let res = await clientOrPool.query(query, [taskId]);
+  if (!res.rows[0]) return null;
+  const ctx = res.rows[0];
+
+  if (procId) {
+    const pRes = await clientOrPool.query(
+      `select * from execution_procedures where id = $1 and task_id = $2 and deleted_at is null`,
+      [procId, taskId]
+    );
+    ctx.procedure = pRes.rows[0] || null;
+  }
+
+  if (subProcId) {
+    const spRes = await clientOrPool.query(
+      `select * from execution_sub_procedures where id = $1 and deleted_at is null`,
+      [subProcId]
+    );
+    ctx.subProcedure = spRes.rows[0] || null;
+  }
+
+  return ctx;
+}
+
+async function canUserManageProcedures(user, ctx) {
+  if (!ctx || !user) return false;
+  if (hasAllData(user) || isAdmin(user)) return true;
+
+  const userId = user.id;
+
+  // 1. Project Manager
+  if (ctx.project_manager_id && ctx.project_manager_id === userId) return true;
+
+  // 2. Project-level Team Head
+  if (ctx.project_id) {
+    const pHead = await pool.query(
+      `select 1 from project_team_assignments
+        where project_id = $1 and team_head_id = $2 and scope = 'PROJECT' and is_active = true and deleted_at is null`,
+      [ctx.project_id, userId]
+    );
+    if (pHead.rowCount > 0) return true;
+  }
+
+  // 3. Plan-level Team Head
+  if (ctx.plan_item_id) {
+    const plHead = await pool.query(
+      `select 1 from project_team_assignments
+        where plan_item_id = $1 and team_head_id = $2 and scope = 'PLAN' and is_active = true and deleted_at is null`,
+      [ctx.plan_item_id, userId]
+    );
+    if (plHead.rowCount > 0) return true;
+  }
+
+  // 4. Task Assignee
+  if (ctx.task_assignee_id === userId) return true;
+  const isAssigned = await pool.query(
+    `select 1 from task_assignees where task_id = $1 and user_id = $2`,
+    [ctx.task_id, userId]
+  );
+  if (isAssigned.rowCount > 0) return true;
+
+  // 5. Explicit user permissions
+  if (can(user, 'Tasks.Edit') || can(user, 'Tasks.Create')) {
+    if (user.org === ctx.task_org || user.org === ctx.project_org) return true;
+  }
+
+  return false;
+}
+
+async function canUserUpdateSubProcedure(user, ctx) {
+  if (await canUserManageProcedures(user, ctx)) return true;
+  if (ctx && ctx.subProcedure && ctx.subProcedure.assigned_user_id === user.id) return true;
+  return false;
+}
+
+function calculateTimingAndDelay(item) {
+  const plannedStart = item.planned_start ? new Date(item.planned_start) : null;
+  const expectedDuration = Number(item.expected_duration || 0);
+  const durationUnit = item.duration_unit || 'hours';
+
+  let durationMs = 0;
+  if (expectedDuration > 0) {
+    if (durationUnit === 'minutes') durationMs = expectedDuration * 60 * 1000;
+    else if (durationUnit === 'hours') durationMs = expectedDuration * 60 * 60 * 1000;
+    else if (durationUnit === 'days') durationMs = expectedDuration * 24 * 60 * 60 * 1000;
+    else if (durationUnit === 'weeks') durationMs = expectedDuration * 7 * 24 * 60 * 60 * 1000;
+  }
+
+  let calculatedDue = item.due_at ? new Date(item.due_at) : (plannedStart && durationMs > 0 ? new Date(plannedStart.getTime() + durationMs) : null);
+  const now = new Date();
+  const actualStart = item.actual_start ? new Date(item.actual_start) : null;
+  const actualCompletion = item.actual_completion ? new Date(item.actual_completion) : null;
+
+  let actualDuration = item.actual_duration != null ? Number(item.actual_duration) : null;
+  if (actualDuration == null && actualStart && actualCompletion) {
+    const diffMs = Math.max(0, actualCompletion.getTime() - actualStart.getTime());
+    if (durationUnit === 'minutes') actualDuration = Math.round(diffMs / (60 * 1000));
+    else if (durationUnit === 'days') actualDuration = +(diffMs / (24 * 60 * 60 * 1000)).toFixed(1);
+    else if (durationUnit === 'weeks') actualDuration = +(diffMs / (7 * 24 * 60 * 60 * 1000)).toFixed(1);
+    else actualDuration = +(diffMs / (60 * 60 * 1000)).toFixed(1); // default hours
+  }
+
+  let isDelayed = false;
+  let delayMs = 0;
+  let remainingMs = 0;
+
+  if (calculatedDue) {
+    if (item.status === 'completed') {
+      if (actualCompletion && actualCompletion.getTime() > calculatedDue.getTime()) {
+        isDelayed = true;
+        delayMs = actualCompletion.getTime() - calculatedDue.getTime();
+      }
+    } else {
+      if (now.getTime() > calculatedDue.getTime() && item.status !== 'cancelled') {
+        isDelayed = true;
+        delayMs = now.getTime() - calculatedDue.getTime();
+      } else if (now.getTime() <= calculatedDue.getTime()) {
+        remainingMs = calculatedDue.getTime() - now.getTime();
+      }
+    }
+  }
+
+  const delayHours = Math.round(delayMs / (60 * 60 * 1000));
+  const delayDays = +(delayMs / (24 * 60 * 60 * 1000)).toFixed(1);
+  const remainingHours = Math.round(remainingMs / (60 * 60 * 1000));
+  const remainingDays = +(remainingMs / (24 * 60 * 60 * 1000)).toFixed(1);
+
+  return {
+    calculated_due_at: calculatedDue ? calculatedDue.toISOString() : null,
+    actual_duration: actualDuration,
+    is_delayed: isDelayed,
+    delay_ms: delayMs,
+    delay_hours: delayHours,
+    delay_days: delayDays,
+    remaining_ms: remainingMs,
+    remaining_hours: remainingHours,
+    remaining_days: remainingDays
+  };
+}
+
+async function syncProcedureAndTaskProgress(client, procedureId, taskId, actor) {
+  if (procedureId) {
+    const procRes = await client.query(
+      `select id, task_id, progress_mode, status, progress from execution_procedures where id = $1 and deleted_at is null`,
+      [procedureId]
+    );
+    const proc = procRes.rows[0];
+    if (proc && proc.progress_mode === 'auto') {
+      const subsRes = await client.query(
+        `select id, status, progress from execution_sub_procedures where procedure_id = $1 and deleted_at is null order by order_index`,
+        [procedureId]
+      );
+      const subs = subsRes.rows;
+      if (subs.length > 0) {
+        const avgProgress = Math.round(subs.reduce((sum, s) => sum + (s.progress || 0), 0) / subs.length);
+        const allCompleted = subs.every(s => s.status === 'completed' || s.progress === 100);
+        const anyInProgress = subs.some(s => s.status === 'in_progress' || s.progress > 0);
+
+        let nextStatus = proc.status;
+        let actualComp = null;
+        let actualStart = null;
+
+        if (allCompleted) {
+          nextStatus = 'completed';
+          actualComp = new Date().toISOString();
+        } else if (anyInProgress && proc.status === 'not_started') {
+          nextStatus = 'in_progress';
+          actualStart = new Date().toISOString();
+        }
+
+        await client.query(
+          `update execution_procedures
+              set progress = $1,
+                  status = $2,
+                  actual_completion = case when $3::timestamptz is not null and actual_completion is null then $3::timestamptz else actual_completion end,
+                  actual_start = case when $4::timestamptz is not null and actual_start is null then $4::timestamptz else actual_start end,
+                  updated_at = now()
+            where id = $5`,
+          [avgProgress, nextStatus, actualComp, actualStart, procedureId]
+        );
+      }
+    }
+  }
+
+  if (taskId) {
+    const allProcsRes = await client.query(
+      `select id, status, progress from execution_procedures where task_id = $1 and deleted_at is null`,
+      [taskId]
+    );
+    const allProcs = allProcsRes.rows;
+    if (allProcs.length > 0) {
+      const taskAvgProgress = Math.round(allProcs.reduce((sum, p) => sum + (p.progress || 0), 0) / allProcs.length);
+      const allTaskProcsCompleted = allProcs.every(p => p.status === 'completed' || p.progress === 100);
+      const anyTaskProcInProgress = allProcs.some(p => p.status === 'in_progress' || p.progress > 0);
+
+      const currentTask = (await client.query(`select status, progress from tasks where id = $1`, [taskId])).rows[0];
+      if (currentTask) {
+        let nextTaskStatus = currentTask.status;
+        let taskActualComp = null;
+        if (allTaskProcsCompleted && currentTask.status !== 'completed' && currentTask.status !== 'approved') {
+          nextTaskStatus = 'completed';
+          taskActualComp = new Date().toISOString();
+        } else if (anyTaskProcInProgress && currentTask.status === 'not_started') {
+          nextTaskStatus = 'in_progress';
+        }
+
+        await client.query(
+          `update tasks
+              set progress = $1,
+                  status = $2,
+                  actual_completion = case when $3::timestamptz is not null then $3::timestamptz else actual_completion end,
+                  updated_at = now()
+            where id = $4`,
+          [taskAvgProgress, nextTaskStatus, taskActualComp, taskId]
+        );
+      }
+    }
+  }
+}
+
+async function checkDependencyBlockers(client, scope, itemId) {
+  const query = `
+    select pd.id, pd.predecessor_id, pd.successor_id,
+           ${scope === 'PROCEDURE' ? 'p.title, p.status, p.progress' : 'sp.title, sp.status, sp.progress'}
+      from procedure_dependencies pd
+      ${scope === 'PROCEDURE'
+        ? 'join execution_procedures p on p.id = pd.predecessor_id and p.deleted_at is null'
+        : 'join execution_sub_procedures sp on sp.id = pd.predecessor_id and sp.deleted_at is null'}
+     where pd.scope = $1 and pd.successor_id = $2
+  `;
+  const res = await client.query(query, [scope, itemId]);
+  const blockers = res.rows.filter(r => r.status !== 'completed' || r.progress < 100);
+  return blockers;
+}
+
+async function hasDependencyCycle(client, scope, predecessorId, successorId) {
+  const query = `
+    with recursive dep_path as (
+      select successor_id from procedure_dependencies where scope = $1 and predecessor_id = $2
+      union
+      select pd.successor_id
+        from procedure_dependencies pd
+        join dep_path dp on dp.successor_id = pd.predecessor_id
+       where pd.scope = $1
+    )
+    select 1 from dep_path where successor_id = $3 limit 1;
+  `;
+  const res = await client.query(query, [scope, successorId, predecessorId]);
+  return res.rowCount > 0;
+}
+
+// 1. GET /api/tasks/:taskId/procedures - Fetch full procedure hierarchy for a task
+app.get('/api/tasks/:taskId/procedures', requireActive, async (req, res, next) => {
+  try {
+    const { taskId } = req.params;
+    if (!/^[0-9a-f-]{36}$/i.test(taskId)) return invalid(res, 'معرف المهمة غير صالح.');
+
+    const ctx = await getTaskProcedureContext(pool, taskId);
+    if (!ctx) return res.status(404).json({ code: 'NOT_FOUND', message: 'المهمة غير موجودة.' });
+
+    const canView = await canAccessTask(req.user, taskId);
+    if (!canView) return forbid(res);
+
+    const canManage = await canUserManageProcedures(req.user, ctx);
+
+    // Fetch Procedures
+    const procsRes = await pool.query(
+      `select ep.*,
+              u.name as assigned_user_name, u.email as assigned_user_email, u.avatar_url as assigned_user_avatar,
+              th.name as team_head_name
+         from execution_procedures ep
+         left join profiles u on u.id = ep.assigned_user_id
+         left join profiles th on th.id = ep.team_head_id
+        where ep.task_id = $1 and ep.deleted_at is null
+        order by ep.order_index asc, ep.created_at asc`,
+      [taskId]
+    );
+
+    // Fetch Sub-Procedures
+    const subProcsRes = await pool.query(
+      `select esp.*,
+              u.name as assigned_user_name, u.email as assigned_user_email, u.avatar_url as assigned_user_avatar
+         from execution_sub_procedures esp
+         left join profiles u on u.id = esp.assigned_user_id
+        where esp.task_id = $1 and esp.deleted_at is null
+        order by esp.procedure_id, esp.order_index asc, esp.created_at asc`,
+      [taskId]
+    );
+
+    // Fetch Dependencies
+    const depsRes = await pool.query(
+      `select pd.*,
+              case when pd.scope = 'PROCEDURE' then p_pred.title else sp_pred.title end as predecessor_title,
+              case when pd.scope = 'PROCEDURE' then p_succ.title else sp_succ.title end as successor_title
+         from procedure_dependencies pd
+         left join execution_procedures p_pred on p_pred.id = pd.predecessor_id and pd.scope = 'PROCEDURE'
+         left join execution_procedures p_succ on p_succ.id = pd.successor_id and pd.scope = 'PROCEDURE'
+         left join execution_sub_procedures sp_pred on sp_pred.id = pd.predecessor_id and pd.scope = 'SUB_PROCEDURE'
+         left join execution_sub_procedures sp_succ on sp_succ.id = pd.successor_id and pd.scope = 'SUB_PROCEDURE'
+        where pd.task_id = $1
+        order by pd.created_at asc`,
+      [taskId]
+    );
+
+    // Group Sub-Procedures under their parent Procedure
+    const subProcsByProcId = new Map();
+    for (const sub of subProcsRes.rows) {
+      const timing = calculateTimingAndDelay(sub);
+      const enrichedSub = { ...sub, ...timing };
+      if (!subProcsByProcId.has(sub.procedure_id)) {
+        subProcsByProcId.set(sub.procedure_id, []);
+      }
+      subProcsByProcId.get(sub.procedure_id).push(enrichedSub);
+    }
+
+    const procedureDeps = depsRes.rows.filter(d => d.scope === 'PROCEDURE');
+    const subProcedureDeps = depsRes.rows.filter(d => d.scope === 'SUB_PROCEDURE');
+
+    let totalCompleted = 0;
+    let totalInProgress = 0;
+    let totalDelayed = 0;
+    let totalNotStarted = 0;
+    let totalProgressSum = 0;
+
+    const procedures = procsRes.rows.map(proc => {
+      const timing = calculateTimingAndDelay(proc);
+      const subs = subProcsByProcId.get(proc.id) || [];
+      const isDelayed = timing.is_delayed || subs.some(s => s.is_delayed && s.status !== 'completed');
+      
+      if (proc.status === 'completed') totalCompleted++;
+      else if (proc.status === 'in_progress') totalInProgress++;
+      else if (isDelayed) totalDelayed++;
+      else totalNotStarted++;
+
+      totalProgressSum += (proc.progress || 0);
+
+      return {
+        ...proc,
+        ...timing,
+        is_delayed: isDelayed,
+        sub_procedures: subs,
+        dependencies: procedureDeps.filter(d => d.successor_id === proc.id || d.predecessor_id === proc.id)
+      };
+    });
+
+    const totalCount = procedures.length;
+    const overallProgress = totalCount > 0 ? Math.round(totalProgressSum / totalCount) : 0;
+
+    res.json({
+      task_id: taskId,
+      procedures,
+      dependencies: depsRes.rows,
+      summary: {
+        total_procedures: totalCount,
+        completed_procedures: totalCompleted,
+        in_progress_procedures: totalInProgress,
+        delayed_procedures: totalDelayed,
+        not_started_procedures: totalNotStarted,
+        overall_progress: overallProgress,
+        total_sub_procedures: subProcsRes.rows.length,
+        completed_sub_procedures: subProcsRes.rows.filter(s => s.status === 'completed').length
+      },
+      permissions: {
+        can_manage_procedures: canManage,
+        can_create_sub_procedure: canManage
+      }
+    });
+  } catch (error) { next(error); }
+});
+
+// 2. POST /api/tasks/:taskId/procedures - Create Procedure
+app.post('/api/tasks/:taskId/procedures', requireActive, async (req, res, next) => {
+  const { taskId } = req.params;
+  if (!/^[0-9a-f-]{36}$/i.test(taskId)) return invalid(res, 'معرف المهمة غير صالح.');
+
+  const ctx = await getTaskProcedureContext(pool, taskId);
+  if (!ctx) return res.status(404).json({ code: 'NOT_FOUND', message: 'المهمة غير موجودة.' });
+
+  const canManage = await canUserManageProcedures(req.user, ctx);
+  if (!canManage) return forbid(res);
+
+  const title = String(req.body.title || '').trim();
+  if (!title) return invalid(res, 'عنوان الإجراء التنفيذي مطلوب.');
+
+  const description = req.body.description ? String(req.body.description).trim() : null;
+  const status = ENUMS.procedureStatus.has(req.body.status) ? req.body.status : 'not_started';
+  const progress = Number.isInteger(req.body.progress) ? Math.min(Math.max(req.body.progress, 0), 100) : 0;
+  const progressMode = req.body.progress_mode === 'manual' ? 'manual' : 'auto';
+  const priority = ENUMS.priority.has(req.body.priority) ? req.body.priority : 'normal';
+  const durationUnit = ENUMS.durationUnit.has(req.body.duration_unit) ? req.body.duration_unit : 'hours';
+  const expectedDuration = req.body.expected_duration != null && !Number.isNaN(Number(req.body.expected_duration)) ? Number(req.body.expected_duration) : null;
+  const plannedStart = req.body.planned_start && !Number.isNaN(Date.parse(req.body.planned_start)) ? new Date(req.body.planned_start).toISOString() : null;
+  let dueAt = req.body.due_at && !Number.isNaN(Date.parse(req.body.due_at)) ? new Date(req.body.due_at).toISOString() : null;
+
+  if (!dueAt && plannedStart && expectedDuration && expectedDuration > 0) {
+    const mult = durationUnit === 'minutes' ? 60000 : durationUnit === 'days' ? 86400000 : durationUnit === 'weeks' ? 604800000 : 3600000;
+    dueAt = new Date(new Date(plannedStart).getTime() + expectedDuration * mult).toISOString();
+  }
+
+  const assignedUserId = req.body.assigned_user_id && /^[0-9a-f-]{36}$/i.test(req.body.assigned_user_id) ? req.body.assigned_user_id : null;
+  const teamHeadId = req.body.team_head_id && /^[0-9a-f-]{36}$/i.test(req.body.team_head_id) ? req.body.team_head_id : null;
+  const notes = req.body.notes ? String(req.body.notes).trim() : null;
+  const attachments = Array.isArray(req.body.attachments) ? JSON.stringify(req.body.attachments) : '[]';
+  const relatedLinks = Array.isArray(req.body.related_links) ? JSON.stringify(req.body.related_links) : '[]';
+
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+
+    const maxOrderRes = await client.query(
+      `select coalesce(max(order_index), 0) as max_order from execution_procedures where task_id = $1 and deleted_at is null`,
+      [taskId]
+    );
+    const orderIndex = Number.isInteger(req.body.order_index) ? req.body.order_index : (maxOrderRes.rows[0].max_order + 1);
+
+    const insertRes = await client.query(
+      `insert into execution_procedures (
+         task_id, project_id, plan_item_id, assigned_user_id, team_head_id, order_index,
+         title, description, status, progress, progress_mode, planned_start, expected_duration,
+         duration_unit, due_at, priority, notes, attachments, related_links, created_by
+       ) values (
+         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20
+       ) returning *`,
+      [
+        taskId, ctx.project_id, ctx.plan_item_id, assignedUserId, teamHeadId, orderIndex,
+        title, description, status, progress, progressMode, plannedStart, expectedDuration,
+        durationUnit, dueAt, priority, notes, attachments, relatedLinks, req.user.id
+      ]
+    );
+    const row = insertRes.rows[0];
+
+    await syncProcedureAndTaskProgress(client, row.id, taskId, req.user);
+    await writeAudit(client, req, 'إضافة إجراء تنفيذي للمهمة', 'CREATE', 'execution_procedures', row.id, {
+      task_id: taskId,
+      title: row.title,
+      order_index: row.order_index
+    });
+
+    await client.query('commit');
+    res.status(201).json(row);
+  } catch (error) {
+    await client.query('rollback');
+    next(error);
+  } finally { client.release(); }
+});
+
+// 3. PATCH /api/procedures/:id - Update Procedure
+app.patch('/api/procedures/:id', requireActive, async (req, res, next) => {
+  const { id } = req.params;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return invalid(res, 'معرف الإجراء غير صالح.');
+
+  const procRow = (await pool.query(`select * from execution_procedures where id = $1 and deleted_at is null`, [id])).rows[0];
+  if (!procRow) return res.status(404).json({ code: 'NOT_FOUND', message: 'الإجراء التنفيذي غير موجود.' });
+
+  const ctx = await getTaskProcedureContext(pool, procRow.task_id, id);
+  const canManage = await canUserManageProcedures(req.user, ctx);
+  if (!canManage) return forbid(res);
+
+  const allowedFields = FIELDS.execution_procedures;
+  const patch = cleanObject(req.body, allowedFields);
+  if (Object.keys(patch).length === 0) return res.status(400).json({ message: 'لا توجد بيانات للتحديث.' });
+
+  if (patch.title != null && !String(patch.title).trim()) return invalid(res, 'عنوان الإجراء مطلوب.');
+  if (patch.status && !ENUMS.procedureStatus.has(patch.status)) return invalid(res, 'حالة الإجراء غير صالحة.');
+  if (patch.priority && !ENUMS.priority.has(patch.priority)) return invalid(res, 'أولوية الإجراء غير صالحة.');
+  if (patch.duration_unit && !ENUMS.durationUnit.has(patch.duration_unit)) return invalid(res, 'وحدة المدة غير صالحة.');
+
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+
+    // Auto-calculate due_at if planned_start and duration changed
+    const effectiveStart = patch.planned_start !== undefined ? patch.planned_start : procRow.planned_start;
+    const effectiveDuration = patch.expected_duration !== undefined ? patch.expected_duration : procRow.expected_duration;
+    const effectiveUnit = patch.duration_unit !== undefined ? patch.duration_unit : procRow.duration_unit;
+
+    if (patch.due_at === undefined && effectiveStart && effectiveDuration > 0) {
+      const mult = effectiveUnit === 'minutes' ? 60000 : effectiveUnit === 'days' ? 86400000 : effectiveUnit === 'weeks' ? 604800000 : 3600000;
+      patch.due_at = new Date(new Date(effectiveStart).getTime() + effectiveDuration * mult).toISOString();
+    }
+
+    if (patch.status === 'completed' && procRow.status !== 'completed') {
+      patch.progress = 100;
+      if (!patch.actual_completion) patch.actual_completion = new Date().toISOString();
+    }
+
+    const query = updateStatement('execution_procedures', id, patch, allowedFields);
+    const { rows } = await client.query(query);
+
+    await syncProcedureAndTaskProgress(client, id, procRow.task_id, req.user);
+    await writeAudit(client, req, 'تحديث الإجراء التنفيذي', 'UPDATE', 'execution_procedures', id, {
+      task_id: procRow.task_id,
+      changed_fields: Object.keys(patch)
+    });
+
+    await client.query('commit');
+    res.json(rows[0]);
+  } catch (error) {
+    await client.query('rollback');
+    next(error);
+  } finally { client.release(); }
+});
+
+// 4. DELETE /api/procedures/:id - Soft Delete Procedure
+app.delete('/api/procedures/:id', requireActive, async (req, res, next) => {
+  const { id } = req.params;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return invalid(res, 'معرف الإجراء غير صالح.');
+
+  const procRow = (await pool.query(`select * from execution_procedures where id = $1 and deleted_at is null`, [id])).rows[0];
+  if (!procRow) return res.status(404).json({ code: 'NOT_FOUND', message: 'الإجراء التنفيذي غير موجود.' });
+
+  const ctx = await getTaskProcedureContext(pool, procRow.task_id, id);
+  const canManage = await canUserManageProcedures(req.user, ctx);
+  if (!canManage) return forbid(res);
+
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+
+    await client.query(`update execution_procedures set deleted_at = now() where id = $1`, [id]);
+    await client.query(`update execution_sub_procedures set deleted_at = now() where procedure_id = $1 and deleted_at is null`, [id]);
+    await client.query(`delete from procedure_dependencies where predecessor_id = $1 or successor_id = $1`, [id]);
+
+    await syncProcedureAndTaskProgress(client, null, procRow.task_id, req.user);
+    await writeAudit(client, req, 'أرشفة إجراء تنفيذي', 'DELETE', 'execution_procedures', id, {
+      task_id: procRow.task_id,
+      title: procRow.title
+    });
+
+    await client.query('commit');
+    res.json({ success: true, message: 'تم حذف الإجراء التنفيذي بنجاح.' });
+  } catch (error) {
+    await client.query('rollback');
+    next(error);
+  } finally { client.release(); }
+});
+
+// 5. POST /api/procedures/:id/start - Quick Start Procedure
+app.post('/api/procedures/:id/start', requireActive, async (req, res, next) => {
+  const { id } = req.params;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return invalid(res, 'معرف الإجراء غير صالح.');
+
+  const procRow = (await pool.query(`select * from execution_procedures where id = $1 and deleted_at is null`, [id])).rows[0];
+  if (!procRow) return res.status(404).json({ code: 'NOT_FOUND', message: 'الإجراء التنفيذي غير موجود.' });
+
+  const ctx = await getTaskProcedureContext(pool, procRow.task_id, id);
+  const canManage = await canUserManageProcedures(req.user, ctx);
+  if (!canManage) return forbid(res);
+
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+
+    // Check Finish-to-Start dependency blockers
+    const blockers = await checkDependencyBlockers(client, 'PROCEDURE', id);
+    if (blockers.length > 0) {
+      await client.query('rollback');
+      return res.status(400).json({
+        code: 'DEPENDENCY_BLOCKED',
+        message: `لا يمكن بدء هذا الإجراء قبل اكتمال الإجراء السابق: "${blockers[0].title}".`,
+        blockers
+      });
+    }
+
+    const nowIso = new Date().toISOString();
+    const updateRes = await client.query(
+      `update execution_procedures
+          set status = 'in_progress',
+              actual_start = coalesce(actual_start, $1::timestamptz),
+              updated_at = now()
+        where id = $2 returning *`,
+      [nowIso, id]
+    );
+
+    await syncProcedureAndTaskProgress(client, id, procRow.task_id, req.user);
+    await writeAudit(client, req, 'بدء تنفيذ الإجراء', 'UPDATE', 'execution_procedures', id, {
+      task_id: procRow.task_id,
+      actual_start: nowIso
+    });
+
+    await client.query('commit');
+    res.json(updateRes.rows[0]);
+  } catch (error) {
+    await client.query('rollback');
+    next(error);
+  } finally { client.release(); }
+});
+
+// 6. POST /api/procedures/:id/complete - Quick Complete Procedure
+app.post('/api/procedures/:id/complete', requireActive, async (req, res, next) => {
+  const { id } = req.params;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return invalid(res, 'معرف الإجراء غير صالح.');
+
+  const procRow = (await pool.query(`select * from execution_procedures where id = $1 and deleted_at is null`, [id])).rows[0];
+  if (!procRow) return res.status(404).json({ code: 'NOT_FOUND', message: 'الإجراء التنفيذي غير موجود.' });
+
+  const ctx = await getTaskProcedureContext(pool, procRow.task_id, id);
+  const canManage = await canUserManageProcedures(req.user, ctx);
+  if (!canManage) return forbid(res);
+
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+
+    const nowIso = new Date().toISOString();
+    const actualStart = procRow.actual_start || nowIso;
+    const diffMs = Math.max(0, new Date(nowIso).getTime() - new Date(actualStart).getTime());
+    let actDuration = +(diffMs / (60 * 60 * 1000)).toFixed(1);
+    if (procRow.duration_unit === 'minutes') actDuration = Math.round(diffMs / 60000);
+    else if (procRow.duration_unit === 'days') actDuration = +(diffMs / 86400000).toFixed(1);
+    else if (procRow.duration_unit === 'weeks') actDuration = +(diffMs / 604800000).toFixed(1);
+
+    const updateRes = await client.query(
+      `update execution_procedures
+          set status = 'completed',
+              progress = 100,
+              actual_start = coalesce(actual_start, $1::timestamptz),
+              actual_completion = $2::timestamptz,
+              actual_duration = coalesce(actual_duration, $3),
+              updated_at = now()
+        where id = $4 returning *`,
+      [actualStart, nowIso, actDuration, id]
+    );
+
+    // Also mark sub-procedures completed if configured
+    await client.query(
+      `update execution_sub_procedures
+          set status = 'completed',
+              progress = 100,
+              actual_completion = coalesce(actual_completion, $1::timestamptz),
+              updated_at = now()
+        where procedure_id = $2 and deleted_at is null and status <> 'completed'`,
+      [nowIso, id]
+    );
+
+    await syncProcedureAndTaskProgress(client, id, procRow.task_id, req.user);
+    await writeAudit(client, req, 'إكمال تنفيذ الإجراء بنجاح', 'UPDATE', 'execution_procedures', id, {
+      task_id: procRow.task_id,
+      actual_completion: nowIso,
+      actual_duration: actDuration
+    });
+
+    await client.query('commit');
+    res.json(updateRes.rows[0]);
+  } catch (error) {
+    await client.query('rollback');
+    next(error);
+  } finally { client.release(); }
+});
+
+// 7. POST /api/procedures/reorder - Reorder Procedures Sequence
+app.post('/api/procedures/reorder', requireActive, async (req, res, next) => {
+  const { task_id, ordered_ids } = req.body;
+  if (!/^[0-9a-f-]{36}$/i.test(task_id)) return invalid(res, 'معرف المهمة غير صالح.');
+  if (!Array.isArray(ordered_ids) || ordered_ids.length === 0) return invalid(res, 'قائمة الترتيب مطلوبة.');
+
+  const ctx = await getTaskProcedureContext(pool, task_id);
+  if (!ctx) return res.status(404).json({ code: 'NOT_FOUND', message: 'المهمة غير موجودة.' });
+
+  const canManage = await canUserManageProcedures(req.user, ctx);
+  if (!canManage) return forbid(res);
+
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+
+    for (let index = 0; index < ordered_ids.length; index++) {
+      const pId = ordered_ids[index];
+      await client.query(
+        `update execution_procedures set order_index = $1, updated_at = now() where id = $2 and task_id = $3`,
+        [index + 1, pId, task_id]
+      );
+    }
+
+    await writeAudit(client, req, 'إعادة ترتيب الإجراءات التنفيذية', 'UPDATE', 'execution_procedures', task_id, {
+      task_id,
+      count: ordered_ids.length
+    });
+
+    await client.query('commit');
+    res.json({ success: true, message: 'تم حفظ الترتيب الجديد بنجاح.' });
+  } catch (error) {
+    await client.query('rollback');
+    next(error);
+  } finally { client.release(); }
+});
+
+// 8. POST /api/procedures/:id/sub-procedures - Create Sub-Procedure
+app.post('/api/procedures/:id/sub-procedures', requireActive, async (req, res, next) => {
+  const { id } = req.params;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return invalid(res, 'معرف الإجراء الأب غير صالح.');
+
+  const procRow = (await pool.query(`select * from execution_procedures where id = $1 and deleted_at is null`, [id])).rows[0];
+  if (!procRow) return res.status(404).json({ code: 'NOT_FOUND', message: 'الإجراء التنفيذي الأب غير موجود.' });
+
+  const ctx = await getTaskProcedureContext(pool, procRow.task_id, id);
+  const canManage = await canUserManageProcedures(req.user, ctx);
+  if (!canManage) return forbid(res);
+
+  const title = String(req.body.title || '').trim();
+  if (!title) return invalid(res, 'عنوان الإجراء الفرعي مطلوب.');
+
+  const description = req.body.description ? String(req.body.description).trim() : null;
+  const status = ENUMS.procedureStatus.has(req.body.status) ? req.body.status : 'not_started';
+  const progress = Number.isInteger(req.body.progress) ? Math.min(Math.max(req.body.progress, 0), 100) : 0;
+  const priority = ENUMS.priority.has(req.body.priority) ? req.body.priority : 'normal';
+  const durationUnit = ENUMS.durationUnit.has(req.body.duration_unit) ? req.body.duration_unit : 'hours';
+  const expectedDuration = req.body.expected_duration != null && !Number.isNaN(Number(req.body.expected_duration)) ? Number(req.body.expected_duration) : null;
+  const plannedStart = req.body.planned_start && !Number.isNaN(Date.parse(req.body.planned_start)) ? new Date(req.body.planned_start).toISOString() : null;
+  let dueAt = req.body.due_at && !Number.isNaN(Date.parse(req.body.due_at)) ? new Date(req.body.due_at).toISOString() : null;
+
+  if (!dueAt && plannedStart && expectedDuration && expectedDuration > 0) {
+    const mult = durationUnit === 'minutes' ? 60000 : durationUnit === 'days' ? 86400000 : durationUnit === 'weeks' ? 604800000 : 3600000;
+    dueAt = new Date(new Date(plannedStart).getTime() + expectedDuration * mult).toISOString();
+  }
+
+  const assignedUserId = req.body.assigned_user_id && /^[0-9a-f-]{36}$/i.test(req.body.assigned_user_id) ? req.body.assigned_user_id : null;
+  const notes = req.body.notes ? String(req.body.notes).trim() : null;
+  const attachments = Array.isArray(req.body.attachments) ? JSON.stringify(req.body.attachments) : '[]';
+  const relatedLinks = Array.isArray(req.body.related_links) ? JSON.stringify(req.body.related_links) : '[]';
+
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+
+    const maxOrderRes = await client.query(
+      `select coalesce(max(order_index), 0) as max_order from execution_sub_procedures where procedure_id = $1 and deleted_at is null`,
+      [id]
+    );
+    const orderIndex = Number.isInteger(req.body.order_index) ? req.body.order_index : (maxOrderRes.rows[0].max_order + 1);
+
+    const insertRes = await client.query(
+      `insert into execution_sub_procedures (
+         procedure_id, task_id, project_id, plan_item_id, assigned_user_id, order_index,
+         title, description, status, progress, planned_start, expected_duration,
+         duration_unit, due_at, priority, notes, attachments, related_links, created_by
+       ) values (
+         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+       ) returning *`,
+      [
+        id, procRow.task_id, procRow.project_id, procRow.plan_item_id, assignedUserId, orderIndex,
+        title, description, status, progress, plannedStart, expectedDuration,
+        durationUnit, dueAt, priority, notes, attachments, relatedLinks, req.user.id
+      ]
+    );
+    const row = insertRes.rows[0];
+
+    await syncProcedureAndTaskProgress(client, id, procRow.task_id, req.user);
+    await writeAudit(client, req, 'إضافة إجراء فرعي', 'CREATE', 'execution_sub_procedures', row.id, {
+      procedure_id: id,
+      task_id: procRow.task_id,
+      title: row.title
+    });
+
+    await client.query('commit');
+    res.status(201).json(row);
+  } catch (error) {
+    await client.query('rollback');
+    next(error);
+  } finally { client.release(); }
+});
+
+// 9. PATCH /api/sub-procedures/:id - Update Sub-Procedure
+app.patch('/api/sub-procedures/:id', requireActive, async (req, res, next) => {
+  const { id } = req.params;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return invalid(res, 'معرف الإجراء الفرعي غير صالح.');
+
+  const subRow = (await pool.query(`select * from execution_sub_procedures where id = $1 and deleted_at is null`, [id])).rows[0];
+  if (!subRow) return res.status(404).json({ code: 'NOT_FOUND', message: 'الإجراء الفرعي غير موجود.' });
+
+  const ctx = await getTaskProcedureContext(pool, subRow.task_id, subRow.procedure_id, id);
+  const canUpdate = await canUserUpdateSubProcedure(req.user, ctx);
+  if (!canUpdate) return forbid(res);
+
+  const allowedFields = FIELDS.execution_sub_procedures;
+  const patch = cleanObject(req.body, allowedFields);
+  if (Object.keys(patch).length === 0) return res.status(400).json({ message: 'لا توجد بيانات للتحديث.' });
+
+  if (patch.title != null && !String(patch.title).trim()) return invalid(res, 'عنوان الإجراء الفرعي مطلوب.');
+  if (patch.status && !ENUMS.procedureStatus.has(patch.status)) return invalid(res, 'حالة الإجراء الفرعي غير صالحة.');
+  if (patch.priority && !ENUMS.priority.has(patch.priority)) return invalid(res, 'أولوية الإجراء الفرعي غير صالحة.');
+  if (patch.duration_unit && !ENUMS.durationUnit.has(patch.duration_unit)) return invalid(res, 'وحدة المدة غير صالحة.');
+
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+
+    const effectiveStart = patch.planned_start !== undefined ? patch.planned_start : subRow.planned_start;
+    const effectiveDuration = patch.expected_duration !== undefined ? patch.expected_duration : subRow.expected_duration;
+    const effectiveUnit = patch.duration_unit !== undefined ? patch.duration_unit : subRow.duration_unit;
+
+    if (patch.due_at === undefined && effectiveStart && effectiveDuration > 0) {
+      const mult = effectiveUnit === 'minutes' ? 60000 : effectiveUnit === 'days' ? 86400000 : effectiveUnit === 'weeks' ? 604800000 : 3600000;
+      patch.due_at = new Date(new Date(effectiveStart).getTime() + effectiveDuration * mult).toISOString();
+    }
+
+    if (patch.status === 'completed' && subRow.status !== 'completed') {
+      patch.progress = 100;
+      if (!patch.actual_completion) patch.actual_completion = new Date().toISOString();
+    }
+
+    const query = updateStatement('execution_sub_procedures', id, patch, allowedFields);
+    const { rows } = await client.query(query);
+
+    await syncProcedureAndTaskProgress(client, subRow.procedure_id, subRow.task_id, req.user);
+    await writeAudit(client, req, 'تحديث الإجراء الفرعي', 'UPDATE', 'execution_sub_procedures', id, {
+      procedure_id: subRow.procedure_id,
+      task_id: subRow.task_id,
+      changed_fields: Object.keys(patch)
+    });
+
+    await client.query('commit');
+    res.json(rows[0]);
+  } catch (error) {
+    await client.query('rollback');
+    next(error);
+  } finally { client.release(); }
+});
+
+// 10. DELETE /api/sub-procedures/:id - Soft Delete Sub-Procedure
+app.delete('/api/sub-procedures/:id', requireActive, async (req, res, next) => {
+  const { id } = req.params;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return invalid(res, 'معرف الإجراء الفرعي غير صالح.');
+
+  const subRow = (await pool.query(`select * from execution_sub_procedures where id = $1 and deleted_at is null`, [id])).rows[0];
+  if (!subRow) return res.status(404).json({ code: 'NOT_FOUND', message: 'الإجراء الفرعي غير موجود.' });
+
+  const ctx = await getTaskProcedureContext(pool, subRow.task_id, subRow.procedure_id, id);
+  const canManage = await canUserManageProcedures(req.user, ctx);
+  if (!canManage) return forbid(res);
+
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+
+    await client.query(`update execution_sub_procedures set deleted_at = now() where id = $1`, [id]);
+    await client.query(`delete from procedure_dependencies where predecessor_id = $1 or successor_id = $1`, [id]);
+
+    await syncProcedureAndTaskProgress(client, subRow.procedure_id, subRow.task_id, req.user);
+    await writeAudit(client, req, 'أرشفة إجراء فرعي', 'DELETE', 'execution_sub_procedures', id, {
+      procedure_id: subRow.procedure_id,
+      task_id: subRow.task_id,
+      title: subRow.title
+    });
+
+    await client.query('commit');
+    res.json({ success: true, message: 'تم حذف الإجراء الفرعي بنجاح.' });
+  } catch (error) {
+    await client.query('rollback');
+    next(error);
+  } finally { client.release(); }
+});
+
+// 11. POST /api/sub-procedures/:id/start - Quick Start Sub-Procedure
+app.post('/api/sub-procedures/:id/start', requireActive, async (req, res, next) => {
+  const { id } = req.params;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return invalid(res, 'معرف الإجراء الفرعي غير صالح.');
+
+  const subRow = (await pool.query(`select * from execution_sub_procedures where id = $1 and deleted_at is null`, [id])).rows[0];
+  if (!subRow) return res.status(404).json({ code: 'NOT_FOUND', message: 'الإجراء الفرعي غير موجود.' });
+
+  const ctx = await getTaskProcedureContext(pool, subRow.task_id, subRow.procedure_id, id);
+  const canUpdate = await canUserUpdateSubProcedure(req.user, ctx);
+  if (!canUpdate) return forbid(res);
+
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+
+    const blockers = await checkDependencyBlockers(client, 'SUB_PROCEDURE', id);
+    if (blockers.length > 0) {
+      await client.query('rollback');
+      return res.status(400).json({
+        code: 'DEPENDENCY_BLOCKED',
+        message: `لا يمكن بدء هذا الإجراء الفرعي قبل اكتمال الإجراء السابق: "${blockers[0].title}".`,
+        blockers
+      });
+    }
+
+    const nowIso = new Date().toISOString();
+    const updateRes = await client.query(
+      `update execution_sub_procedures
+          set status = 'in_progress',
+              actual_start = coalesce(actual_start, $1::timestamptz),
+              updated_at = now()
+        where id = $2 returning *`,
+      [nowIso, id]
+    );
+
+    await syncProcedureAndTaskProgress(client, subRow.procedure_id, subRow.task_id, req.user);
+    await writeAudit(client, req, 'بدء تنفيذ الإجراء الفرعي', 'UPDATE', 'execution_sub_procedures', id, {
+      procedure_id: subRow.procedure_id,
+      task_id: subRow.task_id,
+      actual_start: nowIso
+    });
+
+    await client.query('commit');
+    res.json(updateRes.rows[0]);
+  } catch (error) {
+    await client.query('rollback');
+    next(error);
+  } finally { client.release(); }
+});
+
+// 12. POST /api/sub-procedures/:id/complete - Quick Complete Sub-Procedure
+app.post('/api/sub-procedures/:id/complete', requireActive, async (req, res, next) => {
+  const { id } = req.params;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return invalid(res, 'معرف الإجراء الفرعي غير صالح.');
+
+  const subRow = (await pool.query(`select * from execution_sub_procedures where id = $1 and deleted_at is null`, [id])).rows[0];
+  if (!subRow) return res.status(404).json({ code: 'NOT_FOUND', message: 'الإجراء الفرعي غير موجود.' });
+
+  const ctx = await getTaskProcedureContext(pool, subRow.task_id, subRow.procedure_id, id);
+  const canUpdate = await canUserUpdateSubProcedure(req.user, ctx);
+  if (!canUpdate) return forbid(res);
+
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+
+    const nowIso = new Date().toISOString();
+    const actualStart = subRow.actual_start || nowIso;
+    const diffMs = Math.max(0, new Date(nowIso).getTime() - new Date(actualStart).getTime());
+    let actDuration = +(diffMs / (60 * 60 * 1000)).toFixed(1);
+    if (subRow.duration_unit === 'minutes') actDuration = Math.round(diffMs / 60000);
+    else if (subRow.duration_unit === 'days') actDuration = +(diffMs / 86400000).toFixed(1);
+    else if (subRow.duration_unit === 'weeks') actDuration = +(diffMs / 604800000).toFixed(1);
+
+    const updateRes = await client.query(
+      `update execution_sub_procedures
+          set status = 'completed',
+              progress = 100,
+              actual_start = coalesce(actual_start, $1::timestamptz),
+              actual_completion = $2::timestamptz,
+              actual_duration = coalesce(actual_duration, $3),
+              updated_at = now()
+        where id = $4 returning *`,
+      [actualStart, nowIso, actDuration, id]
+    );
+
+    await syncProcedureAndTaskProgress(client, subRow.procedure_id, subRow.task_id, req.user);
+    await writeAudit(client, req, 'إكمال تنفيذ الإجراء الفرعي بنجاح', 'UPDATE', 'execution_sub_procedures', id, {
+      procedure_id: subRow.procedure_id,
+      task_id: subRow.task_id,
+      actual_completion: nowIso,
+      actual_duration: actDuration
+    });
+
+    await client.query('commit');
+    res.json(updateRes.rows[0]);
+  } catch (error) {
+    await client.query('rollback');
+    next(error);
+  } finally { client.release(); }
+});
+
+// 13. POST /api/sub-procedures/reorder - Reorder Sub-Procedures
+app.post('/api/sub-procedures/reorder', requireActive, async (req, res, next) => {
+  const { procedure_id, ordered_ids } = req.body;
+  if (!/^[0-9a-f-]{36}$/i.test(procedure_id)) return invalid(res, 'معرف الإجراء الأب غير صالح.');
+  if (!Array.isArray(ordered_ids) || ordered_ids.length === 0) return invalid(res, 'قائمة الترتيب مطلوبة.');
+
+  const procRow = (await pool.query(`select * from execution_procedures where id = $1 and deleted_at is null`, [procedure_id])).rows[0];
+  if (!procRow) return res.status(404).json({ code: 'NOT_FOUND', message: 'الإجراء التنفيذي الأب غير موجود.' });
+
+  const ctx = await getTaskProcedureContext(pool, procRow.task_id, procedure_id);
+  const canManage = await canUserManageProcedures(req.user, ctx);
+  if (!canManage) return forbid(res);
+
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+
+    for (let index = 0; index < ordered_ids.length; index++) {
+      const spId = ordered_ids[index];
+      await client.query(
+        `update execution_sub_procedures set order_index = $1, updated_at = now() where id = $2 and procedure_id = $3`,
+        [index + 1, spId, procedure_id]
+      );
+    }
+
+    await writeAudit(client, req, 'إعادة ترتيب الإجراءات الفرعية', 'UPDATE', 'execution_sub_procedures', procedure_id, {
+      procedure_id,
+      task_id: procRow.task_id,
+      count: ordered_ids.length
+    });
+
+    await client.query('commit');
+    res.json({ success: true, message: 'تم حفظ ترتيب الإجراءات الفرعية بنجاح.' });
+  } catch (error) {
+    await client.query('rollback');
+    next(error);
+  } finally { client.release(); }
+});
+
+// 14. POST /api/procedures/dependencies - Add Dependency
+app.post('/api/procedures/dependencies', requireActive, async (req, res, next) => {
+  const { task_id, scope, predecessor_id, successor_id, dependency_type } = req.body;
+  if (!/^[0-9a-f-]{36}$/i.test(task_id)) return invalid(res, 'معرف المهمة غير صالح.');
+  if (!['PROCEDURE', 'SUB_PROCEDURE'].includes(scope)) return invalid(res, 'نطاق التبعية غير صالح.');
+  if (!/^[0-9a-f-]{36}$/i.test(predecessor_id) || !/^[0-9a-f-]{36}$/i.test(successor_id)) {
+    return invalid(res, 'معرفات عناصر التبعية غير صالحة.');
+  }
+  if (predecessor_id === successor_id) return invalid(res, 'لا يمكن ربط العنصر بنفسه كتبعية.');
+
+  const ctx = await getTaskProcedureContext(pool, task_id);
+  if (!ctx) return res.status(404).json({ code: 'NOT_FOUND', message: 'المهمة غير موجودة.' });
+
+  const canManage = await canUserManageProcedures(req.user, ctx);
+  if (!canManage) return forbid(res);
+
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+
+    // Prevent cyclic dependencies
+    const cyclic = await hasDependencyCycle(client, scope, predecessor_id, successor_id);
+    if (cyclic) {
+      await client.query('rollback');
+      return res.status(400).json({ code: 'CIRCULAR_DEPENDENCY', message: 'لا يمكن إضافة التبعية لأنها ستنشئ حلقة اعتماد دائرية غير صالحة.' });
+    }
+
+    const insertRes = await client.query(
+      `insert into procedure_dependencies (task_id, scope, predecessor_id, successor_id, dependency_type)
+       values ($1, $2, $3, $4, $5)
+       on conflict (scope, predecessor_id, successor_id) do nothing
+       returning *`,
+      [task_id, scope, predecessor_id, successor_id, dependency_type || 'FINISH_TO_START']
+    );
+
+    await writeAudit(client, req, 'إضافة تبعية تنفيذية', 'CREATE', 'procedure_dependencies', insertRes.rows[0]?.id || task_id, {
+      task_id,
+      scope,
+      predecessor_id,
+      successor_id
+    });
+
+    await client.query('commit');
+    res.status(201).json(insertRes.rows[0] || { scope, predecessor_id, successor_id });
+  } catch (error) {
+    await client.query('rollback');
+    next(error);
+  } finally { client.release(); }
+});
+
+// 15. DELETE /api/procedures/dependencies/:id - Delete Dependency
+app.delete('/api/procedures/dependencies/:id', requireActive, async (req, res, next) => {
+  const { id } = req.params;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return invalid(res, 'معرف التبعية غير صالح.');
+
+  const depRow = (await pool.query(`select * from procedure_dependencies where id = $1`, [id])).rows[0];
+  if (!depRow) return res.status(404).json({ code: 'NOT_FOUND', message: 'التبعية غير موجودة.' });
+
+  const ctx = await getTaskProcedureContext(pool, depRow.task_id);
+  const canManage = await canUserManageProcedures(req.user, ctx);
+  if (!canManage) return forbid(res);
+
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    await client.query(`delete from procedure_dependencies where id = $1`, [id]);
+    await writeAudit(client, req, 'حذف تبعية تنفيذية', 'DELETE', 'procedure_dependencies', id, {
+      task_id: depRow.task_id,
+      predecessor_id: depRow.predecessor_id,
+      successor_id: depRow.successor_id
+    });
+    await client.query('commit');
+    res.json({ success: true, message: 'تم حذف التبعية بنجاح.' });
+  } catch (error) {
+    await client.query('rollback');
+    next(error);
+  } finally { client.release(); }
+});
+
+/* ------------------------------------------------------------------
+   Task Unified Workflows & Lifecycle API
+   ------------------------------------------------------------------ */
+
+async function canUserReviewTask(user, taskId) {
+  if (isAdmin(user) || isSupervisor(user) || can(user, 'Tasks.Approve') || can(user, 'Tasks.Edit')) return true;
+  const { rows } = await pool.query(
+    `select t.project_id, t.plan_item_id, p.manager_id
+       from tasks t
+       left join projects p on p.id = t.project_id
+      where t.id = $1 and t.deleted_at is null`,
+    [taskId]
+  );
+  if (!rows[0]) return false;
+  const { project_id, plan_item_id, manager_id } = rows[0];
+  if (manager_id === user.id) return true;
+
+  const teamHead = await pool.query(
+    `select 1 from project_team_assignments
+      where team_head_id = $1 and is_active = true and deleted_at is null
+        and ((scope = 'PROJECT' and project_id = $2) or (scope = 'PLAN' and plan_item_id = $3))`,
+    [user.id, project_id, plan_item_id]
+  );
+  return teamHead.rowCount > 0;
+}
+
+async function isTaskAssignee(user, taskId) {
+  const { rowCount } = await pool.query(
+    `select 1 from tasks t where t.id = $1 and t.deleted_at is null and (
+      t.assignee_id = $2 or exists(select 1 from task_assignees ta where ta.task_id = t.id and ta.user_id = $2)
+    )`,
+    [taskId, user.id]
+  );
+  return rowCount > 0;
+}
+
+// 1. POST /api/tasks/:id/start - Start Task Execution
+app.post('/api/tasks/:id/start', requireActive, async (req, res, next) => {
+  const { id } = req.params;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return invalid(res, 'معرف المهمة غير صالح.');
+
+  const canAccess = await canAccessTask(req.user, id);
+  if (!canAccess) return forbid(res);
+
+  const isAssignee = await isTaskAssignee(req.user, id);
+  const canReview = await canUserReviewTask(req.user, id);
+  if (!isAssignee && !canReview && !can(req.user, 'Tasks.Start')) return forbid(res);
+
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    const task = (await client.query(`select * from tasks where id = $1 and deleted_at is null for update`, [id])).rows[0];
+    if (!task) { await client.query('rollback'); return res.status(404).json({ message: 'المهمة غير موجودة.' }); }
+
+    const nowIso = new Date().toISOString();
+    const actualStart = task.actual_start_at || task.scheduled_start_at || nowIso;
+
+    const { rows } = await client.query(
+      `update tasks
+          set status = 'in_progress',
+              actual_start_at = coalesce(actual_start_at, $1::timestamptz),
+              started_by_id = coalesce(started_by_id, $2),
+              updated_at = now()
+        where id = $3 returning *`,
+      [actualStart, req.user.id, id]
+    );
+
+    await writeAudit(client, req, 'بدء تنفيذ المهمة', 'UPDATE', 'tasks', id, {
+      previous_status: task.status,
+      new_status: 'in_progress',
+      started_by: req.user.id
+    });
+
+    await client.query('commit');
+    res.json(rows[0]);
+  } catch (err) {
+    await client.query('rollback');
+    next(err);
+  } finally { client.release(); }
+});
+
+// 2. POST /api/tasks/:id/submit-completion - Submit Task Completion for Review
+app.post('/api/tasks/:id/submit-completion', requireActive, async (req, res, next) => {
+  const { id } = req.params;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return invalid(res, 'معرف المهمة غير صالح.');
+
+  const canAccess = await canAccessTask(req.user, id);
+  if (!canAccess) return forbid(res);
+
+  const isAssignee = await isTaskAssignee(req.user, id);
+  const canReview = await canUserReviewTask(req.user, id);
+  if (!isAssignee && !canReview && !can(req.user, 'Tasks.Complete')) return forbid(res);
+
+  const { deliverable_description, attachments, links, completion_note, completion_percentage, actual_completion_at } = req.body;
+  if (!deliverable_description && !completion_note) {
+    return invalid(res, 'يرجى تقديم وصف للمخرجات المنجزة أو ملاحظات الإنجاز.');
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    const task = (await client.query(`select * from tasks where id = $1 and deleted_at is null for update`, [id])).rows[0];
+    if (!task) { await client.query('rollback'); return res.status(404).json({ message: 'المهمة غير موجودة.' }); }
+
+    const nowIso = new Date().toISOString();
+    const compPercentage = Number(completion_percentage) >= 0 && Number(completion_percentage) <= 100 ? Number(completion_percentage) : 100;
+    const actualComp = actual_completion_at && !Number.isNaN(Date.parse(actual_completion_at)) ? new Date(actual_completion_at).toISOString() : nowIso;
+
+    // Create completion request record
+    const reqRes = await client.query(
+      `insert into task_completion_requests (
+        task_id, submitted_by_id, submitted_at, completion_note, deliverable_description,
+        attachments, links, completion_percentage, actual_completion_at, status
+      ) values ($1, $2, now(), $3, $4, $5, $6, $7, $8, 'pending_review')
+      returning *`,
+      [id, req.user.id, completion_note || null, deliverable_description || null,
+       JSON.stringify(attachments || []), JSON.stringify(links || []), compPercentage, actualComp]
+    );
+
+    // Update task status to awaiting_approval
+    const { rows } = await client.query(
+      `update tasks
+          set status = 'awaiting_approval',
+              progress = $1,
+              completion_submitted_at = now(),
+              completion_submitted_by_id = $2,
+              actual_completion = $3::timestamptz,
+              updated_at = now()
+        where id = $4 returning *`,
+      [compPercentage, req.user.id, actualComp, id]
+    );
+
+    await writeAudit(client, req, 'تسجيل اكتمال المهمة وإرسالها للاعتماد', 'CREATE', 'task_completion_requests', reqRes.rows[0].id, {
+      task_id: id,
+      task_title: task.title,
+      request_id: reqRes.rows[0].id,
+      completion_percentage: compPercentage
+    });
+
+    await client.query('commit');
+    res.status(201).json({ task: rows[0], request: reqRes.rows[0] });
+  } catch (err) {
+    await client.query('rollback');
+    next(err);
+  } finally { client.release(); }
+});
+
+// 3. GET /api/tasks/:id/completion-requests - Get Completion Requests
+app.get('/api/tasks/:id/completion-requests', requireActive, async (req, res, next) => {
+  const { id } = req.params;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return invalid(res, 'معرف المهمة غير صالح.');
+
+  const canAccess = await canAccessTask(req.user, id);
+  if (!canAccess) return forbid(res);
+
+  try {
+    const { rows } = await pool.query(
+      `select r.*,
+              sub.name as submitted_by_name, sub.email as submitted_by_email, sub.avatar_url as submitted_by_avatar,
+              rev.name as reviewed_by_name, rev.email as reviewed_by_email
+         from task_completion_requests r
+         left join profiles sub on sub.id = r.submitted_by_id
+         left join profiles rev on rev.id = r.reviewed_by_id
+        where r.task_id = $1
+        order by r.created_at desc`,
+      [id]
+    );
+    res.json(rows);
+  } catch (err) { next(err); }
+});
+
+// 4. POST /api/tasks/:id/review-completion - Review & Approve / Return Task Completion
+app.post('/api/tasks/:id/review-completion', requireActive, async (req, res, next) => {
+  const { id } = req.params;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return invalid(res, 'معرف المهمة غير صالح.');
+
+  const canReview = await canUserReviewTask(req.user, id);
+  if (!canReview) return forbid(res);
+
+  const { request_id, decision, review_note } = req.body;
+  if (!['approved', 'revision_requested', 'returned_to_execution', 'rejected'].includes(decision)) {
+    return invalid(res, 'قرار المراجعة غير صالح. الخيارات المتاحة: approved, revision_requested, returned_to_execution, rejected.');
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    const task = (await client.query(`select * from tasks where id = $1 and deleted_at is null for update`, [id])).rows[0];
+    if (!task) { await client.query('rollback'); return res.status(404).json({ message: 'المهمة غير موجودة.' }); }
+
+    // Assignee cannot approve their own completion unless they are Admin
+    const isAssignee = await isTaskAssignee(req.user, id);
+    if (decision === 'approved' && isAssignee && !isAdmin(req.user)) {
+      await client.query('rollback');
+      return res.status(403).json({ code: 'SELF_APPROVAL_FORBIDDEN', message: 'لا يمكن للمنفذ اعتماد اكتمال مهمته بنفسه؛ يجب الاعتماد من قبل رئيس الفريق أو مدير المشروع أو المشرف.' });
+    }
+
+    let targetReqId = request_id;
+    if (!targetReqId) {
+      const latestReq = (await client.query(
+        `select id from task_completion_requests where task_id = $1 and status = 'pending_review' order by created_at desc limit 1`, [id]
+      )).rows[0];
+      targetReqId = latestReq ? latestReq.id : null;
+    }
+
+    if (targetReqId) {
+      await client.query(
+        `update task_completion_requests
+            set status = $1,
+                reviewed_by_id = $2,
+                reviewed_at = now(),
+                review_note = $3,
+                updated_at = now()
+          where id = $4`,
+        [decision, req.user.id, review_note || null, targetReqId]
+      );
+    }
+
+    let nextStatus = task.status;
+    let nextProgress = task.progress;
+    let approvedAt = null;
+    let approvedById = null;
+
+    if (decision === 'approved') {
+      nextStatus = 'completed_approved';
+      nextProgress = 100;
+      approvedAt = new Date().toISOString();
+      approvedById = req.user.id;
+    } else if (decision === 'revision_requested') {
+      nextStatus = 'needs_revision';
+    } else if (decision === 'returned_to_execution') {
+      nextStatus = 'in_progress';
+    } else if (decision === 'rejected') {
+      nextStatus = 'needs_revision';
+    }
+
+    const { rows } = await client.query(
+      `update tasks
+          set status = $1,
+              progress = $2,
+              completion_approved_at = case when $3::timestamptz is not null then $3::timestamptz else completion_approved_at end,
+              completion_approved_by_id = case when $4::uuid is not null then $4::uuid else completion_approved_by_id end,
+              notes = case when $5::text is not null then concat_ws(E'\n---\n', notes, concat('[ملاحظة المراجعة]: ', $5::text)) else notes end,
+              updated_at = now()
+        where id = $6 returning *`,
+      [nextStatus, nextProgress, approvedAt, approvedById, review_note || null, id]
+    );
+
+    await writeAudit(client, req, `مراجعة اكتمال المهمة: ${decision}`, 'UPDATE', 'tasks', id, {
+      decision,
+      review_note,
+      previous_status: task.status,
+      new_status: nextStatus
+    });
+
+    await client.query('commit');
+    res.json({ task: rows[0], decision, review_note });
+  } catch (err) {
+    await client.query('rollback');
+    next(err);
+  } finally { client.release(); }
+});
+
+// 5. POST /api/tasks/:id/hold - Put Task On Hold with Reason
+app.post('/api/tasks/:id/hold', requireActive, async (req, res, next) => {
+  const { id } = req.params;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return invalid(res, 'معرف المهمة غير صالح.');
+
+  const canAccess = await canAccessTask(req.user, id);
+  if (!canAccess) return forbid(res);
+
+  const { reason, expected_resume_at } = req.body;
+  if (!String(reason || '').trim()) return invalid(res, 'سبب إيقاف المهمة مؤقتًا إلزامي.');
+
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    const task = (await client.query(`select * from tasks where id = $1 and deleted_at is null for update`, [id])).rows[0];
+    if (!task) { await client.query('rollback'); return res.status(404).json({ message: 'المهمة غير موجودة.' }); }
+
+    const resumeDate = expected_resume_at && !Number.isNaN(Date.parse(expected_resume_at)) ? new Date(expected_resume_at).toISOString() : null;
+
+    const { rows } = await client.query(
+      `update tasks
+          set status = 'on_hold',
+              hold_reason = $1,
+              hold_at = now(),
+              hold_by_id = $2,
+              expected_resume_at = $3,
+              updated_at = now()
+        where id = $4 returning *`,
+      [String(reason).trim(), req.user.id, resumeDate, id]
+    );
+
+    await writeAudit(client, req, 'إيقاف المهمة مؤقتًا', 'UPDATE', 'tasks', id, {
+      previous_status: task.status,
+      hold_reason: reason,
+      expected_resume_at: resumeDate
+    });
+
+    await client.query('commit');
+    res.json(rows[0]);
+  } catch (err) {
+    await client.query('rollback');
+    next(err);
+  } finally { client.release(); }
+});
+
+// 6. POST /api/tasks/:id/resume - Resume Task Execution
+app.post('/api/tasks/:id/resume', requireActive, async (req, res, next) => {
+  const { id } = req.params;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return invalid(res, 'معرف المهمة غير صالح.');
+
+  const canAccess = await canAccessTask(req.user, id);
+  if (!canAccess) return forbid(res);
+
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    const task = (await client.query(`select * from tasks where id = $1 and deleted_at is null for update`, [id])).rows[0];
+    if (!task) { await client.query('rollback'); return res.status(404).json({ message: 'المهمة غير موجودة.' }); }
+
+    const { rows } = await client.query(
+      `update tasks
+          set status = 'in_progress',
+              hold_reason = null,
+              expected_resume_at = null,
+              updated_at = now()
+        where id = $1 returning *`,
+      [id]
+    );
+
+    await writeAudit(client, req, 'استئناف تنفيذ المهمة', 'UPDATE', 'tasks', id, {
+      previous_status: task.status,
+      new_status: 'in_progress'
+    });
+
+    await client.query('commit');
+    res.json(rows[0]);
+  } catch (err) {
+    await client.query('rollback');
+    next(err);
+  } finally { client.release(); }
+});
+
+// 7. POST /api/tasks/:id/request-extension - Request Task Extension
+app.post('/api/tasks/:id/request-extension', requireActive, async (req, res, next) => {
+  const { id } = req.params;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return invalid(res, 'معرف المهمة غير صالح.');
+
+  const canAccess = await canAccessTask(req.user, id);
+  if (!canAccess) return forbid(res);
+
+  const { requested_due_at, requested_duration_days, reason, notes, attachments } = req.body;
+  if (!requested_due_at || Number.isNaN(Date.parse(requested_due_at))) {
+    return invalid(res, 'تاريخ الاستحقاق المطلوب إلزامي بصيغة صحيحة.');
+  }
+  if (!String(reason || '').trim()) {
+    return invalid(res, 'مبررات طلب التمديد إلزامية.');
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    const task = (await client.query(`select * from tasks where id = $1 and deleted_at is null for update`, [id])).rows[0];
+    if (!task) { await client.query('rollback'); return res.status(404).json({ message: 'المهمة غير موجودة.' }); }
+
+    const currentDue = task.scheduled_due_at || (task.due_date ? `${task.due_date}T17:00:00Z` : null);
+    const originalDue = task.original_due_at || currentDue;
+    const requestedDueIso = new Date(requested_due_at).toISOString();
+
+    if (currentDue && new Date(requestedDueIso) <= new Date(currentDue)) {
+      await client.query('rollback');
+      return invalid(res, 'تاريخ التمديد المطلوب يجب أن يكون لاحقًا لتاريخ الاستحقاق الحالي.');
+    }
+
+    // Ensure original_due_at is preserved on task
+    if (!task.original_due_at && originalDue) {
+      await client.query(`update tasks set original_due_at = $1 where id = $2`, [originalDue, id]);
+    }
+
+    const { rows } = await client.query(
+      `insert into task_extension_requests (
+        task_id, requested_by_id, requested_at, original_due_at, requested_due_at,
+        requested_duration_days, reason, notes, attachments, status
+      ) values ($1, $2, now(), $3, $4, $5, $6, $7, $8, 'pending_review')
+      returning *`,
+      [id, req.user.id, originalDue, requestedDueIso,
+       requested_duration_days ? Number(requested_duration_days) : null,
+       String(reason).trim(), notes || null, JSON.stringify(attachments || [])]
+    );
+
+    await writeAudit(client, req, 'طلب تمديد مهلة المهمة', 'CREATE', 'task_extension_requests', rows[0].id, {
+      task_id: id,
+      task_title: task.title,
+      requested_due_at: requestedDueIso,
+      reason
+    });
+
+    await client.query('commit');
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    await client.query('rollback');
+    next(err);
+  } finally { client.release(); }
+});
+
+// 8. GET /api/tasks/:id/extension-requests - Get Extension Requests
+app.get('/api/tasks/:id/extension-requests', requireActive, async (req, res, next) => {
+  const { id } = req.params;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return invalid(res, 'معرف المهمة غير صالح.');
+
+  const canAccess = await canAccessTask(req.user, id);
+  if (!canAccess) return forbid(res);
+
+  try {
+    const { rows } = await pool.query(
+      `select r.*,
+              req_user.name as requested_by_name, req_user.email as requested_by_email,
+              rev_user.name as reviewed_by_name, rev_user.email as reviewed_by_email
+         from task_extension_requests r
+         left join profiles req_user on req_user.id = r.requested_by_id
+         left join profiles rev_user on rev_user.id = r.reviewed_by_id
+        where r.task_id = $1
+        order by r.created_at desc`,
+      [id]
+    );
+    res.json(rows);
+  } catch (err) { next(err); }
+});
+
+// 9. POST /api/tasks/extension-requests/:requestId/review - Review Extension Request
+app.post('/api/tasks/extension-requests/:requestId/review', requireActive, async (req, res, next) => {
+  const { requestId } = req.params;
+  if (!/^[0-9a-f-]{36}$/i.test(requestId)) return invalid(res, 'معرف الطلب غير صالح.');
+
+  const { decision, review_note } = req.body;
+  if (!['approved', 'rejected', 'needs_info'].includes(decision)) {
+    return invalid(res, 'قرار المراجعة غير صالح. الخيارات المتاحة: approved, rejected, needs_info.');
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    const extReq = (await client.query(`select * from task_extension_requests where id = $1 for update`, [requestId])).rows[0];
+    if (!extReq) { await client.query('rollback'); return res.status(404).json({ message: 'طلب التمديد غير موجود.' }); }
+
+    const canReview = await canUserReviewTask(req.user, extReq.task_id);
+    if (!canReview) { await client.query('rollback'); return forbid(res); }
+
+    const task = (await client.query(`select * from tasks where id = $1 for update`, [extReq.task_id])).rows[0];
+    if (!task) { await client.query('rollback'); return res.status(404).json({ message: 'المهمة غير موجودة.' }); }
+
+    // Update request
+    const reqRes = await client.query(
+      `update task_extension_requests
+          set status = $1,
+              reviewed_by_id = $2,
+              reviewed_at = now(),
+              review_note = $3,
+              updated_at = now()
+        where id = $4 returning *`,
+      [decision, req.user.id, review_note || null, requestId]
+    );
+
+    let updatedTask = task;
+    if (decision === 'approved') {
+      const newDueIso = extReq.requested_due_at;
+      const newDueDate = new Date(newDueIso).toISOString().slice(0, 10);
+      const prevDue = task.scheduled_due_at || (task.due_date ? `${task.due_date}T17:00:00Z` : null);
+
+      const taskUpd = await client.query(
+        `update tasks
+            set scheduled_due_at = $1::timestamptz,
+                due_date = $2,
+                extension_count = coalesce(extension_count, 0) + 1,
+                updated_at = now()
+          where id = $3 returning *`,
+        [newDueIso, newDueDate, extReq.task_id]
+      );
+      updatedTask = taskUpd.rows[0];
+
+      // Record schedule history
+      const baseline = task.plan_item_id ? (await client.query(
+        `select (planned_start::date + time '09:00') at time zone 'Asia/Riyadh' as baseline_start,
+                (planned_end::date + time '17:00') at time zone 'Asia/Riyadh' as baseline_due
+           from master_plan_items where id=$1`, [task.plan_item_id])).rows[0] : null;
+
+      await client.query(
+        `insert into task_schedule_history(
+          task_id, baseline_start_at, baseline_due_at, previous_start_at, previous_due_at,
+          new_start_at, new_due_at, change_reason, changed_by, changed_by_name
+        ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [task.id, baseline && baseline.baseline_start, baseline && baseline.baseline_due,
+         task.scheduled_start_at, prevDue, task.scheduled_start_at, newDueIso,
+         `اعتماد طلب تمديد: ${extReq.reason}`, req.user.id, req.user.name]
+      );
+    }
+
+    await writeAudit(client, req, `مراجعة طلب تمديد المهمة: ${decision}`, 'UPDATE', 'task_extension_requests', requestId, {
+      task_id: extReq.task_id,
+      decision,
+      review_note
+    });
+
+    await client.query('commit');
+    res.json({ request: reqRes.rows[0], task: updatedTask });
+  } catch (err) {
+    await client.query('rollback');
+    next(err);
+  } finally { client.release(); }
+});
+
+// 10. POST /api/tasks/:id/reassign - Reassign Task
+app.post('/api/tasks/:id/reassign', requireActive, async (req, res, next) => {
+  const { id } = req.params;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return invalid(res, 'معرف المهمة غير صالح.');
+
+  const canManage = await canUserReviewTask(req.user, id);
+  if (!canManage && !can(req.user, 'Tasks.Assign')) return forbid(res);
+
+  const { assignee_id, assignee_ids, reason, note } = req.body;
+  const targetIds = assignee_ids && Array.isArray(assignee_ids) && assignee_ids.length > 0
+    ? [...new Set(assignee_ids)]
+    : assignee_id ? [assignee_id] : [];
+
+  if (targetIds.length === 0 || targetIds.some(uid => !/^[0-9a-f-]{36}$/i.test(uid))) {
+    return invalid(res, 'يجب تحديد مستخدم واحد صالح على الأقل لإسناد المهمة إليه.');
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    const task = (await client.query(`select * from tasks where id = $1 and deleted_at is null for update`, [id])).rows[0];
+    if (!task) { await client.query('rollback'); return res.status(404).json({ message: 'المهمة غير موجودة.' }); }
+
+    // Fetch previous assignees
+    const prevAssigneesRes = await client.query(`select user_id from task_assignees where task_id = $1`, [id]);
+    const prevIds = prevAssigneesRes.rows.map(r => r.user_id);
+    if (task.assignee_id && !prevIds.includes(task.assignee_id)) prevIds.unshift(task.assignee_id);
+
+    // Verify new assignees exist and are active
+    const activeUsers = await client.query(
+      `select id, name from profiles where id = any($1::uuid[]) and status = 'active' and deleted_at is null`,
+      [targetIds]
+    );
+    if (activeUsers.rowCount !== targetIds.length) {
+      await client.query('rollback');
+      return invalid(res, 'أحد المستخدمين المحددين غير موجود أو حسابه غير نشط.');
+    }
+
+    const primaryAssigneeId = targetIds[0];
+
+    // Update tasks table
+    const { rows } = await client.query(
+      `update tasks
+          set assignee_id = $1,
+              updated_at = now()
+        where id = $2 returning *`,
+      [primaryAssigneeId, id]
+    );
+
+    // Sync task_assignees
+    await client.query(`delete from task_assignees where task_id = $1`, [id]);
+    for (const uid of targetIds) {
+      await client.query(
+        `insert into task_assignees (task_id, user_id, assigned_by) values ($1, $2, $3) on conflict do nothing`,
+        [id, uid, req.user.id]
+      );
+    }
+
+    // Record assignment history
+    await client.query(
+      `insert into task_assignment_history (
+        task_id, previous_assignee_ids, previous_assignee_id, new_assignee_ids, new_assignee_id,
+        reassigned_by_id, reason, note, effective_at
+      ) values ($1, $2, $3, $4, $5, $6, $7, $8, now())`,
+      [id, JSON.stringify(prevIds), prevIds[0] || null, JSON.stringify(targetIds), primaryAssigneeId,
+       req.user.id, reason || null, note || null]
+    );
+
+    await writeAudit(client, req, 'إعادة إسناد المهمة', 'UPDATE', 'tasks', id, {
+      previous_assignees: prevIds,
+      new_assignees: targetIds,
+      reason
+    });
+
+    await client.query('commit');
+    res.json(rows[0]);
+  } catch (err) {
+    await client.query('rollback');
+    next(err);
+  } finally { client.release(); }
+});
+
+// 11. GET /api/tasks/:id/assignment-history - Get Task Assignment History
+app.get('/api/tasks/:id/assignment-history', requireActive, async (req, res, next) => {
+  const { id } = req.params;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return invalid(res, 'معرف المهمة غير صالح.');
+
+  const canAccess = await canAccessTask(req.user, id);
+  if (!canAccess) return forbid(res);
+
+  try {
+    const { rows } = await pool.query(
+      `select h.*,
+              reassigned_by.name as reassigned_by_name,
+              prev_user.name as previous_assignee_name,
+              new_user.name as new_assignee_name
+         from task_assignment_history h
+         left join profiles reassigned_by on reassigned_by.id = h.reassigned_by_id
+         left join profiles prev_user on prev_user.id = h.previous_assignee_id
+         left join profiles new_user on new_user.id = h.new_assignee_id
+        where h.task_id = $1
+        order by h.effective_at desc`,
+      [id]
+    );
+    res.json(rows);
+  } catch (err) { next(err); }
+});
+
+/* ------------------------------------------------------------------
+   Hierarchical Task & Team Chat System
+   ------------------------------------------------------------------ */
+
+// 1. GET /api/chat/conversations - List Conversations for User
+app.get('/api/chat/conversations', requireActive, async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `select c.*,
+              t.title as task_title, t.status as task_status,
+              p.name as project_name,
+              cp.last_read_at,
+              coalesce((
+                select count(*)::int
+                  from chat_messages cm
+                 where cm.conversation_id = c.id
+                   and cm.deleted_at is null
+                   and cm.created_at > cp.last_read_at
+                   and cm.sender_id <> $1
+              ), 0) as unread_count,
+              (
+                select json_build_object(
+                  'id', lm.id,
+                  'sender_id', lm.sender_id,
+                  'sender_name', ls.name,
+                  'message', lm.message,
+                  'created_at', lm.created_at
+                )
+                  from chat_messages lm
+                  join profiles ls on ls.id = lm.sender_id
+                 where lm.conversation_id = c.id and lm.deleted_at is null
+                 order by lm.created_at desc limit 1
+              ) as last_message,
+              (
+                select json_agg(json_build_object(
+                  'id', u.id,
+                  'name', u.name,
+                  'email', u.email,
+                  'avatar_url', u.avatar_url,
+                  'role', u.role,
+                  'role_in_conversation', part.role_in_conversation
+                ))
+                  from chat_participants part
+                  join profiles u on u.id = part.user_id
+                 where part.conversation_id = c.id
+              ) as participants
+         from chat_conversations c
+         join chat_participants cp on cp.conversation_id = c.id and cp.user_id = $1
+         left join tasks t on t.id = c.task_id and t.deleted_at is null
+         left join projects p on p.id = c.project_id and p.deleted_at is null
+        order by c.updated_at desc`,
+      [req.user.id]
+    );
+    res.json(rows);
+  } catch (err) { next(err); }
+});
+
+// 2. POST /api/chat/conversations - Create or Get Conversation
+app.post('/api/chat/conversations', requireActive, async (req, res, next) => {
+  const { type, participant_ids, task_id, project_id, title } = req.body;
+  const convType = ['DIRECT', 'TASK', 'PROJECT_TEAM'].includes(type) ? type : 'DIRECT';
+
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+
+    if (convType === 'TASK' && task_id) {
+      if (!/^[0-9a-f-]{36}$/i.test(task_id)) {
+        await client.query('rollback');
+        return invalid(res, 'معرف المهمة غير صالح.');
+      }
+      const canAccess = await canAccessTask(req.user, task_id);
+      if (!canAccess) {
+        await client.query('rollback');
+        return forbid(res);
+      }
+
+      // Check if task conversation already exists
+      const existing = (await client.query(
+        `select id from chat_conversations where type = 'TASK' and task_id = $1 limit 1`, [task_id]
+      )).rows[0];
+
+      let conversationId = existing ? existing.id : null;
+
+      if (!conversationId) {
+        const task = (await client.query(
+          `select t.title, t.project_id, t.plan_item_id, t.assignee_id from tasks t where t.id = $1`, [task_id]
+        )).rows[0];
+
+        const convTitle = title || `مناقشة المهمة: ${task.title}`;
+        const newConv = (await client.query(
+          `insert into chat_conversations (type, project_id, plan_id, task_id, title, created_by_id)
+           values ('TASK', $1, $2, $3, $4, $5) returning *`,
+          [task.project_id, task.plan_item_id, task_id, convTitle, req.user.id]
+        )).rows[0];
+        conversationId = newConv.id;
+
+        // Collect members to add: creator, assignee(s), PM, team head
+        const membersToAdd = new Set([req.user.id]);
+        if (task.assignee_id) membersToAdd.add(task.assignee_id);
+
+        const assignees = await client.query(`select user_id from task_assignees where task_id = $1`, [task_id]);
+        for (const a of assignees.rows) membersToAdd.add(a.user_id);
+
+        if (task.project_id) {
+          const pm = (await client.query(`select manager_id from projects where id = $1`, [task.project_id])).rows[0];
+          if (pm && pm.manager_id) membersToAdd.add(pm.manager_id);
+
+          const heads = await client.query(
+            `select team_head_id from project_team_assignments where (project_id = $1 or plan_item_id = $2) and is_active = true and deleted_at is null`,
+            [task.project_id, task.plan_item_id]
+          );
+          for (const h of heads.rows) membersToAdd.add(h.team_head_id);
+        }
+
+        for (const uid of membersToAdd) {
+          await client.query(
+            `insert into chat_participants (conversation_id, user_id, role_in_conversation)
+             values ($1, $2, case when $2 = $3 then 'creator' else 'member' end)
+             on conflict (conversation_id, user_id) do nothing`,
+            [conversationId, uid, req.user.id]
+          );
+        }
+      } else {
+        // Ensure current user is in participants
+        await client.query(
+          `insert into chat_participants (conversation_id, user_id, role_in_conversation)
+           values ($1, $2, 'member')
+           on conflict (conversation_id, user_id) do nothing`,
+          [conversationId, req.user.id]
+        );
+      }
+
+      await client.query('commit');
+      return res.status(existing ? 200 : 201).json({ id: conversationId, type: 'TASK', task_id });
+    }
+
+    if (convType === 'DIRECT') {
+      const otherUserId = participant_ids && Array.isArray(participant_ids)
+        ? participant_ids.find(id => id !== req.user.id)
+        : req.body.other_user_id;
+
+      if (!otherUserId || !/^[0-9a-f-]{36}$/i.test(otherUserId)) {
+        await client.query('rollback');
+        return invalid(res, 'يجب تحديد المستخدم الآخر لبدء المحادثة المباشرة.');
+      }
+
+      // Check if direct conversation between these two users exists
+      const existingConv = (await client.query(
+        `select c.id
+           from chat_conversations c
+           join chat_participants p1 on p1.conversation_id = c.id and p1.user_id = $1
+           join chat_participants p2 on p2.conversation_id = c.id and p2.user_id = $2
+          where c.type = 'DIRECT'
+          limit 1`,
+        [req.user.id, otherUserId]
+      )).rows[0];
+
+      if (existingConv) {
+        await client.query('commit');
+        return res.json({ id: existingConv.id, type: 'DIRECT' });
+      }
+
+      const otherUser = (await client.query(`select name from profiles where id = $1 and deleted_at is null`, [otherUserId])).rows[0];
+      const convTitle = `محادثة مباشرة: ${req.user.name} و ${(otherUser && otherUser.name) || ''}`;
+
+      const newConv = (await client.query(
+        `insert into chat_conversations (type, title, created_by_id)
+         values ('DIRECT', $1, $2) returning *`,
+        [convTitle, req.user.id]
+      )).rows[0];
+
+      await client.query(
+        `insert into chat_participants (conversation_id, user_id, role_in_conversation)
+         values ($1, $2, 'creator'), ($1, $3, 'member')`,
+        [newConv.id, req.user.id, otherUserId]
+      );
+
+      await client.query('commit');
+      return res.status(201).json(newConv);
+    }
+
+    await client.query('rollback');
+    return invalid(res, 'نوع المحادثة غير معتمد.');
+  } catch (err) {
+    await client.query('rollback');
+    next(err);
+  } finally { client.release(); }
+});
+
+// 3. GET /api/chat/conversations/:id/messages - Get Messages in Conversation
+app.get('/api/chat/conversations/:id/messages', requireActive, async (req, res, next) => {
+  const { id } = req.params;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return invalid(res, 'معرف المحادثة غير صالح.');
+
+  try {
+    const isParticipant = (await pool.query(
+      `select 1 from chat_participants where conversation_id = $1 and user_id = $2`, [id, req.user.id]
+    )).rowCount > 0;
+
+    if (!isParticipant && !isAdmin(req.user)) return forbid(res);
+
+    // Update last_read_at
+    await pool.query(
+      `update chat_participants set last_read_at = now() where conversation_id = $1 and user_id = $2`,
+      [id, req.user.id]
+    );
+
+    const { rows } = await pool.query(
+      `select m.*,
+              s.name as sender_name, s.email as sender_email, s.avatar_url as sender_avatar, s.role as sender_role,
+              coalesce((
+                select json_agg(json_build_object(
+                  'id', ref.id,
+                  'reference_type', ref.reference_type,
+                  'reference_id', ref.reference_id,
+                  'reference_title', ref.reference_title,
+                  'metadata', ref.metadata
+                ))
+                  from chat_message_references ref
+                 where ref.message_id = m.id
+              ), '[]'::json) as references,
+              reply.message as reply_to_message_text,
+              reply_sender.name as reply_to_sender_name
+         from chat_messages m
+         join profiles s on s.id = m.sender_id
+         left join chat_messages reply on reply.id = m.reply_to_message_id
+         left join profiles reply_sender on reply_sender.id = reply.sender_id
+        where m.conversation_id = $1 and m.deleted_at is null
+        order by m.created_at asc`,
+      [id]
+    );
+    res.json(rows);
+  } catch (err) { next(err); }
+});
+
+// 4. POST /api/chat/conversations/:id/messages - Send Message (with mentions/references)
+app.post('/api/chat/conversations/:id/messages', requireActive, async (req, res, next) => {
+  const { id } = req.params;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return invalid(res, 'معرف المحادثة غير صالح.');
+
+  const messageText = String(req.body.message || '').trim();
+  if (!messageText) return invalid(res, 'نص الرسالة مطلوب.');
+
+  const { reply_to_message_id, attachments, references } = req.body;
+
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+
+    const isParticipant = (await client.query(
+      `select 1 from chat_participants where conversation_id = $1 and user_id = $2`, [id, req.user.id]
+    )).rowCount > 0;
+
+    if (!isParticipant) {
+      // Auto add if authorized user
+      await client.query(
+        `insert into chat_participants (conversation_id, user_id, role_in_conversation)
+         values ($1, $2, 'member') on conflict do nothing`,
+        [id, req.user.id]
+      );
+    }
+
+    const { rows } = await client.query(
+      `insert into chat_messages (conversation_id, sender_id, message, reply_to_message_id, attachments)
+       values ($1, $2, $3, $4, $5) returning *`,
+      [id, req.user.id, messageText, reply_to_message_id || null, JSON.stringify(attachments || [])]
+    );
+    const createdMsg = rows[0];
+
+    // Update conversation timestamp
+    await client.query(`update chat_conversations set updated_at = now() where id = $1`, [id]);
+
+    // Update sender's last_read_at
+    await client.query(`update chat_participants set last_read_at = now() where conversation_id = $1 and user_id = $2`, [id, req.user.id]);
+
+    // Process Mentions / References
+    const refsToInsert = [];
+    if (references && Array.isArray(references)) {
+      for (const r of references) {
+        if (r.reference_type && r.reference_id) {
+          refsToInsert.push(r);
+        }
+      }
+    }
+
+    // Parse text for @task:[uuid], @procedure:[uuid], @sub_procedure:[uuid], @user:[uuid]
+    const mentionRegex = /@(task|procedure|sub_procedure|user):([0-9a-f-]{36})/gi;
+    let match;
+    while ((match = mentionRegex.exec(messageText)) !== null) {
+      const type = match[1].toUpperCase();
+      const refId = match[2];
+      if (!refsToInsert.some(r => r.reference_type === type && r.reference_id === refId)) {
+        refsToInsert.push({ reference_type: type, reference_id: refId });
+      }
+    }
+
+    const savedRefs = [];
+    for (const ref of refsToInsert) {
+      let refTitle = ref.reference_title || null;
+      let metadata = ref.metadata || {};
+
+      if (!refTitle) {
+        if (ref.reference_type === 'TASK') {
+          const tRow = (await client.query(`select title, status, due_date, scheduled_due_at from tasks where id = $1`, [ref.reference_id])).rows[0];
+          if (tRow) {
+            refTitle = tRow.title;
+            const isDelayed = tRow.scheduled_due_at ? new Date(tRow.scheduled_due_at) < new Date() : (tRow.due_date ? new Date(tRow.due_date) < new Date() : false);
+            metadata = { status: tRow.status, due_date: tRow.due_date, is_delayed: isDelayed };
+          }
+        } else if (ref.reference_type === 'PROCEDURE') {
+          const pRow = (await client.query(`select title, status from execution_procedures where id = $1`, [ref.reference_id])).rows[0];
+          if (pRow) { refTitle = pRow.title; metadata = { status: pRow.status }; }
+        } else if (ref.reference_type === 'SUB_PROCEDURE') {
+          const spRow = (await client.query(`select title, status from execution_sub_procedures where id = $1`, [ref.reference_id])).rows[0];
+          if (spRow) { refTitle = spRow.title; metadata = { status: spRow.status }; }
+        } else if (ref.reference_type === 'USER') {
+          const uRow = (await client.query(`select name from profiles where id = $1`, [ref.reference_id])).rows[0];
+          if (uRow) refTitle = uRow.name;
+        }
+      }
+
+      const refInsert = (await client.query(
+        `insert into chat_message_references (message_id, reference_type, reference_id, reference_title, metadata)
+         values ($1, $2, $3, $4, $5) returning *`,
+        [createdMsg.id, ref.reference_type, ref.reference_id, refTitle, JSON.stringify(metadata)]
+      )).rows[0];
+      savedRefs.push(refInsert);
+    }
+
+    await client.query('commit');
+
+    res.status(201).json({
+      ...createdMsg,
+      sender_name: req.user.name,
+      sender_avatar: req.user.avatar_url,
+      references: savedRefs
+    });
+  } catch (err) {
+    await client.query('rollback');
+    next(err);
+  } finally { client.release(); }
+});
+
+// 5. POST /api/chat/conversations/:id/read - Mark conversation as read
+app.post('/api/chat/conversations/:id/read', requireActive, async (req, res, next) => {
+  const { id } = req.params;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return invalid(res, 'معرف المحادثة غير صالح.');
+
+  try {
+    await pool.query(
+      `update chat_participants set last_read_at = now() where conversation_id = $1 and user_id = $2`,
+      [id, req.user.id]
+    );
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// 6. GET /api/chat/accessible-tasks - Get accessible tasks for mention autocomplete
+app.get('/api/chat/accessible-tasks', requireActive, async (req, res, next) => {
+  try {
+    const privileged = hasAllData(req.user);
+    const { rows } = await pool.query(
+      `select t.id, t.title, t.status, t.due_date, t.scheduled_due_at, t.progress,
+              p.name as project_name, p.code as project_code,
+              case
+                when t.status::text in ('completed_approved', 'completed', 'approved', 'cancelled') then false
+                when (t.scheduled_due_at is not null and t.scheduled_due_at < now()) or (t.due_date is not null and t.due_date < current_date) then true
+                else false
+              end as is_delayed
+         from tasks t
+         join projects p on p.id = t.project_id
+        where t.deleted_at is null and p.deleted_at is null
+          and ($1::boolean or t.assignee_id = $2 or exists(select 1 from task_assignees ta where ta.task_id = t.id and ta.user_id = $2)
+               or exists(select 1 from projects pr where pr.id = t.project_id and pr.manager_id = $2)
+               or exists(select 1 from project_team_assignments pta where (pta.project_id = t.project_id or pta.plan_item_id = t.plan_item_id) and pta.team_head_id = $2 and pta.is_active = true and pta.deleted_at is null)
+               or exists(select 1 from project_team_members ptm join project_team_assignments pta on pta.id = ptm.assignment_id where (pta.project_id = t.project_id or pta.plan_item_id = t.plan_item_id) and ptm.user_id = $2 and ptm.is_active = true and ptm.deleted_at is null and pta.deleted_at is null)
+               or (($3 in ('my_department', 'my_team')) and p.org = $4))
+        order by t.title asc limit 200`,
+      [privileged, req.user.id, req.user.data_scope || 'my_data', req.user.org]
+    );
+    res.json(rows);
+  } catch (err) { next(err); }
+});
+
+// 7. GET /api/chat/unread-count - Get total unread messages count for current user
+app.get('/api/chat/unread-count', requireActive, async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `select count(*)::int as unread_count
+         from chat_messages cm
+         join chat_participants cp on cp.conversation_id = cm.conversation_id and cp.user_id = $1
+        where cm.deleted_at is null
+          and cm.created_at > cp.last_read_at
+          and cm.sender_id <> $1`,
+      [req.user.id]
+    );
+    res.json({ unread_count: rows[0]?.unread_count || 0 });
+  } catch (err) { next(err); }
 });
 
 crudRoutes('files', 'files', 'created_at desc',

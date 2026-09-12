@@ -84,14 +84,23 @@ async function request(path, options = {}, expectedStatus = 200) {
     )).rows[0];
     assert.ok(planItemA, `Plan item required for project ${projectA.code}`);
 
+    let assignee = (await client.query(
+      `select id, name, org from profiles where status='active' and deleted_at is null and org=$1 limit 1`,
+      [projectA.org || 'wamy']
+    )).rows[0];
+    if (!assignee) {
+      await client.query(`update profiles set org=$1 where id=$2`, [projectA.org || 'wamy', admin.id]);
+      assignee = admin;
+    }
+
     // API Test 1: Task creation without project_id must fail (400)
     const noProjectPayload = {
       title: 'مهمة بدون مشروع لا يجوز إنشاؤها',
       required_outputs: 'مخرج اختباري',
       scheduled_start_at: '2026-10-01T09:00:00.000Z',
       scheduled_due_at: '2026-10-05T17:00:00.000Z',
-      assignee_id: admin.id,
-      assignee_ids: [admin.id],
+      assignee_id: assignee.id,
+      assignee_ids: [assignee.id],
       priority: 'normal',
       status: 'not_started'
     };
