@@ -531,7 +531,14 @@
                 archive: (id) => request('/projects/' + encodeURIComponent(id) + '/archive', { method: 'POST' }),
                 activate: (id) => request('/projects/' + encodeURIComponent(id) + '/activate', { method: 'POST' }),
                 deactivate: (id) => request('/projects/' + encodeURIComponent(id) + '/deactivate', { method: 'POST' }),
-                deleteSafe: (id, force = false) => request('/projects/' + encodeURIComponent(id) + '?force=' + force, { method: 'DELETE' })
+                deleteSafe: (id, force = false) => request('/projects/' + encodeURIComponent(id) + '?force=' + force, { method: 'DELETE' }),
+                team: (id) => request('/projects/' + encodeURIComponent(id) + '/team'),
+                addAssignment: (id, payload) => request('/projects/' + encodeURIComponent(id) + '/team/assignments', { method: 'POST', body: JSON.stringify(payload) }),
+                updateAssignment: (id, asgnId, payload) => request('/projects/' + encodeURIComponent(id) + '/team/assignments/' + encodeURIComponent(asgnId), { method: 'PATCH', body: JSON.stringify(payload) }),
+                deleteAssignment: (id, asgnId) => request('/projects/' + encodeURIComponent(id) + '/team/assignments/' + encodeURIComponent(asgnId), { method: 'DELETE' }),
+                addMember: (id, asgnId, payload) => request('/projects/' + encodeURIComponent(id) + '/team/assignments/' + encodeURIComponent(asgnId) + '/members', { method: 'POST', body: JSON.stringify(payload) }),
+                updateMember: (id, asgnId, memId, payload) => request('/projects/' + encodeURIComponent(id) + '/team/assignments/' + encodeURIComponent(asgnId) + '/members/' + encodeURIComponent(memId), { method: 'PATCH', body: JSON.stringify(payload) }),
+                deleteMember: (id, asgnId, memId) => request('/projects/' + encodeURIComponent(id) + '/team/assignments/' + encodeURIComponent(asgnId) + '/members/' + encodeURIComponent(memId), { method: 'DELETE' })
             },
             backups: {
                 list: () => request('/backups'),
@@ -3203,6 +3210,466 @@
         );
     }
 
+    function ProjectTeamModal({ open, project, api, profile, onClose, toast, onUpdated }) {
+        const [data, setData] = useState(null);
+        const [loading, setLoading] = useState(true);
+        const [busy, setBusy] = useState(false);
+        const [activeHeadForm, setActiveHeadForm] = useState(false);
+        const [headForm, setHeadForm] = useState({ team_head_id: '', scope: 'PROJECT', plan_item_id: '', title: '', notes: '' });
+        const [activeMemberFormFor, setActiveMemberFormFor] = useState(null);
+        const [memberForm, setMemberForm] = useState({ user_id: '', role_title: '', notes: '' });
+        const [filterScope, setFilterScope] = useState('all');
+
+        const loadTeam = useCallback(async () => {
+            if (!open || !project) return;
+            setLoading(true);
+            try {
+                const res = await api.projects.team(project.id);
+                setData(res);
+            } catch (err) {
+                toast(err.message || 'تعذر تحميل بيانات فريق المشروع', 'error');
+            } finally {
+                setLoading(false);
+            }
+        }, [open, project, api, toast]);
+
+        useEffect(() => {
+            if (open && project) {
+                loadTeam();
+                setActiveHeadForm(false);
+                setActiveMemberFormFor(null);
+                setHeadForm({ team_head_id: '', scope: 'PROJECT', plan_item_id: '', title: '', notes: '' });
+            } else {
+                setData(null);
+            }
+        }, [open, project, loadTeam]);
+
+        if (!open || !project) return null;
+
+        const proj = (data && data.project) || project;
+        const assignments = (data && data.assignments) || [];
+        const availablePlans = (data && data.available_plans) || [];
+        const availableUsers = (data && data.available_users) || [];
+
+        const isManager = proj.manager_id === (profile && profile.id);
+        const canManage = can(profile, 'Admin.Access') || isManager || can(profile, 'Projects.Edit');
+
+        const handleAddHead = async (e) => {
+            e.preventDefault();
+            if (!headForm.team_head_id) {
+                toast('يرجى اختيار رئيس الفريق المراد تعيينه.', 'error');
+                return;
+            }
+            if (headForm.scope === 'PLAN' && !headForm.plan_item_id) {
+                toast('يرجى اختيار الخطة/المسار المرتبط.', 'error');
+                return;
+            }
+            setBusy(true);
+            try {
+                await api.projects.addAssignment(project.id, {
+                    team_head_id: headForm.team_head_id,
+                    scope: headForm.scope,
+                    plan_item_id: headForm.scope === 'PLAN' ? headForm.plan_item_id : null,
+                    title: headForm.title || null,
+                    notes: headForm.notes || null
+                });
+                toast('تم تعيين رئيس الفريق بنجاح.', 'success');
+                setActiveHeadForm(false);
+                setHeadForm({ team_head_id: '', scope: 'PROJECT', plan_item_id: '', title: '', notes: '' });
+                await loadTeam();
+                if (onUpdated) onUpdated();
+            } catch (err) {
+                toast(err.message || 'تعذر تعيين رئيس الفريق', 'error');
+            } finally {
+                setBusy(false);
+            }
+        };
+
+        const handleDeleteHead = async (assignment) => {
+            if (!window.confirm(`هل أنت متأكد من إلغاء تعيين «${assignment.head_name}» من رئاسة الفريق؟`)) return;
+            setBusy(true);
+            try {
+                await api.projects.deleteAssignment(project.id, assignment.id);
+                toast(`تم إلغاء تعيين «${assignment.head_name}» بنجاح.`, 'success');
+                await loadTeam();
+                if (onUpdated) onUpdated();
+            } catch (err) {
+                toast(err.message || 'تعذر إلغاء التعيين', 'error');
+            } finally {
+                setBusy(false);
+            }
+        };
+
+        const handleAddMember = async (assignmentId, e) => {
+            e.preventDefault();
+            if (!memberForm.user_id) {
+                toast('يرجى اختيار العضو المراد إضافته.', 'error');
+                return;
+            }
+            setBusy(true);
+            try {
+                await api.projects.addMember(project.id, assignmentId, {
+                    user_id: memberForm.user_id,
+                    role_title: memberForm.role_title || null,
+                    notes: memberForm.notes || null
+                });
+                toast('تمت إضافة عضو الفريق بنجاح.', 'success');
+                setActiveMemberFormFor(null);
+                setMemberForm({ user_id: '', role_title: '', notes: '' });
+                await loadTeam();
+                if (onUpdated) onUpdated();
+            } catch (err) {
+                toast(err.message || 'تعذر إضافة العضو', 'error');
+            } finally {
+                setBusy(false);
+            }
+        };
+
+        const handleDeleteMember = async (assignmentId, member) => {
+            if (!window.confirm(`هل أنت متأكد من إزالة «${member.user_name}» من الفريق؟`)) return;
+            setBusy(true);
+            try {
+                await api.projects.deleteMember(project.id, assignmentId, member.id);
+                toast(`تمت إزالة «${member.user_name}» من الفريق بنجاح.`, 'success');
+                await loadTeam();
+                if (onUpdated) onUpdated();
+            } catch (err) {
+                toast(err.message || 'تعذر إزالة العضو', 'error');
+            } finally {
+                setBusy(false);
+            }
+        };
+
+        const filteredAssignments = assignments.filter(a => {
+            if (filterScope === 'PROJECT') return a.scope === 'PROJECT';
+            if (filterScope === 'PLAN') return a.scope === 'PLAN';
+            return true;
+        });
+
+        const totalHeads = assignments.length;
+        const totalMembers = assignments.reduce((acc, a) => acc + (a.members ? a.members.length : 0), 0);
+
+        return (
+            <Modal open={open} onClose={onClose} size="xl"
+                   title={`هيكل فريق العمل وإسناد الخطط: ${proj.name}`}
+                   subtitle={proj.code ? `كود المشروع: ${proj.code}` : 'إدارة التسلسل الهرمي للمشروع، المشرفين، والأعضاء'}
+                   footer={
+                       <div className="flex items-center justify-between w-full">
+                           <div className="text-xs text-slate-400 flex items-center gap-3">
+                               <span><strong className="text-cyan-400">{totalHeads}</strong> مشرف</span>
+                               <span>·</span>
+                               <span><strong className="text-emerald-400">{totalMembers}</strong> عضو فريق</span>
+                           </div>
+                           <button type="button" onClick={onClose} className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-sm font-bold">
+                               إغلاق
+                           </button>
+                       </div>
+                   }>
+                {loading ? (
+                    <div className="py-12 text-center text-slate-400">
+                        <i className="fa-solid fa-circle-notch fa-spin text-3xl text-blue-400 mb-3"></i>
+                        <p>جارٍ تحميل هيكل فريق العمل والمشرفين...</p>
+                    </div>
+                ) : (
+                    <div className="space-y-6">
+                        {/* 1. Project Manager Header Card */}
+                        <div className="p-4 bg-slate-950/80 border border-slate-800 rounded-2xl flex flex-wrap items-center justify-between gap-4">
+                            <div className="flex items-center gap-3.5">
+                                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-white text-xl font-bold shadow-lg shadow-blue-500/20">
+                                    <i className="fa-solid fa-user-tie"></i>
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-[11px] font-bold uppercase tracking-wider text-blue-400 bg-blue-950/80 px-2.5 py-0.5 rounded-full border border-blue-500/30">
+                                            المدير المسؤول عن المشروع
+                                        </span>
+                                        <OrgChip code={proj.org} />
+                                    </div>
+                                    <h4 className="text-base font-bold text-white mt-1">
+                                        {proj.manager_name || 'لم يُحدد مدير للمشروع'}
+                                    </h4>
+                                    {proj.manager_email && (
+                                        <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1.5">
+                                            <i className="fa-regular fa-envelope text-slate-500"></i>
+                                            <span dir="ltr">{proj.manager_email}</span>
+                                            {proj.manager_position && <span className="text-slate-500">· {proj.manager_position}</span>}
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="text-end">
+                                <span className="text-xs text-slate-400 block mb-1">حالة المشروع</span>
+                                <span className={cx('px-2.5 py-1 rounded-lg text-xs font-bold border',
+                                    proj.status === 'active' ? 'bg-emerald-950 text-emerald-300 border-emerald-500/30' : 'bg-slate-800 text-slate-300 border-slate-700')}>
+                                    {proj.status === 'active' ? 'نشط (Active)' : proj.status}
+                                </span>
+                            </div>
+                        </div>
+
+                        {/* 2. Team Heads Header & Controls */}
+                        <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                            <div className="flex items-center gap-2">
+                                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                                    <i className="fa-solid fa-users-rays text-cyan-400"></i>
+                                    رؤساء الفرق والمشرفون
+                                </h3>
+                                <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg p-0.5 text-xs">
+                                    <button type="button" onClick={() => setFilterScope('all')}
+                                            className={cx('px-2.5 py-1 rounded-md transition-colors', filterScope === 'all' ? 'bg-blue-600 text-white font-bold' : 'text-slate-400 hover:text-white')}>
+                                        الكل ({assignments.length})
+                                    </button>
+                                    <button type="button" onClick={() => setFilterScope('PROJECT')}
+                                            className={cx('px-2.5 py-1 rounded-md transition-colors', filterScope === 'PROJECT' ? 'bg-purple-600 text-white font-bold' : 'text-slate-400 hover:text-white')}>
+                                        المشروع ككل ({assignments.filter(a => a.scope === 'PROJECT').length})
+                                    </button>
+                                    <button type="button" onClick={() => setFilterScope('PLAN')}
+                                            className={cx('px-2.5 py-1 rounded-md transition-colors', filterScope === 'PLAN' ? 'bg-cyan-600 text-white font-bold' : 'text-slate-400 hover:text-white')}>
+                                        خطط محددة ({assignments.filter(a => a.scope === 'PLAN').length})
+                                    </button>
+                                </div>
+                            </div>
+
+                            {canManage && !activeHeadForm && (
+                                <button type="button" onClick={() => setActiveHeadForm(true)}
+                                        className="px-3.5 py-1.5 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-cyan-600/20 transition-all">
+                                    <i className="fa-solid fa-user-plus"></i>
+                                    تعيين رئيس فريق جديد
+                                </button>
+                            )}
+                        </div>
+
+                        {/* 3. Add Team Head Inline Form */}
+                        {activeHeadForm && (
+                            <form onSubmit={handleAddHead} className="p-4 bg-slate-950 border border-cyan-500/40 rounded-2xl space-y-4 shadow-xl shadow-cyan-950/30">
+                                <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                                    <h4 className="text-xs font-bold text-cyan-400 flex items-center gap-1.5">
+                                        <i className="fa-solid fa-user-gear"></i>
+                                        نموذج تعيين رئيس فريق / مشرف
+                                    </h4>
+                                    <button type="button" onClick={() => setActiveHeadForm(false)} className="text-slate-400 hover:text-white text-xs">
+                                        <i className="fa-solid fa-xmark"></i> إلغاء
+                                    </button>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                                    <div>
+                                        <label className="block text-xs text-slate-300 font-bold mb-1">المستخدم (رئيس الفريق) <span className="text-rose-400">*</span></label>
+                                        <select value={headForm.team_head_id} onChange={e => setHeadForm({ ...headForm, team_head_id: e.target.value })}
+                                                required
+                                                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:border-cyan-500 focus:outline-none">
+                                            <option value="">-- اختر المستخدم --</option>
+                                            {availableUsers.map(u => (
+                                                <option key={u.id} value={u.id}>
+                                                    {u.name} ({u.email}){u.position ? ` · ${u.position}` : ''}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-xs text-slate-300 font-bold mb-1">نطاق الإشراف والمتابعة <span className="text-rose-400">*</span></label>
+                                        <select value={headForm.scope} onChange={e => setHeadForm({ ...headForm, scope: e.target.value })}
+                                                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:border-cyan-500 focus:outline-none">
+                                            <option value="PROJECT">المشروع ككل (Project-wide Head)</option>
+                                            <option value="PLAN">خطة أو مسار محدد (Plan-specific Head)</option>
+                                        </select>
+                                    </div>
+
+                                    {headForm.scope === 'PLAN' && (
+                                        <div className="sm:col-span-2">
+                                            <label className="block text-xs text-slate-300 font-bold mb-1">الخطة / المسار المستهدف <span className="text-rose-400">*</span></label>
+                                            <select value={headForm.plan_item_id} onChange={e => setHeadForm({ ...headForm, plan_item_id: e.target.value })}
+                                                    required={headForm.scope === 'PLAN'}
+                                                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:border-cyan-500 focus:outline-none">
+                                                <option value="">-- اختر الخطة أو المسار --</option>
+                                                {availablePlans.map(p => (
+                                                    <option key={p.id} value={p.id}>
+                                                        {p.track ? `[${p.track}] ` : ''}{p.title}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    )}
+
+                                    <div>
+                                        <label className="block text-xs text-slate-300 font-bold mb-1">المسمى أو الوصف القيادي (اختياري)</label>
+                                        <input type="text" value={headForm.title} onChange={e => setHeadForm({ ...headForm, title: e.target.value })}
+                                               placeholder="مثال: رئيس فريق المحتوى الرقمي"
+                                               className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:border-cyan-500 focus:outline-none" />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-xs text-slate-300 font-bold mb-1">ملاحظات إضافية (اختياري)</label>
+                                        <input type="text" value={headForm.notes} onChange={e => setHeadForm({ ...headForm, notes: e.target.value })}
+                                               placeholder="ملاحظات حول صلاحيات أو مسؤوليات الفريق"
+                                               className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:border-cyan-500 focus:outline-none" />
+                                    </div>
+                                </div>
+
+                                <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+                                    <button type="button" onClick={() => setActiveHeadForm(false)} disabled={busy} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold">
+                                        إلغاء
+                                    </button>
+                                    <button type="submit" disabled={busy} className="px-4 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5">
+                                        {busy ? <i className="fa-solid fa-circle-notch fa-spin"></i> : <i className="fa-solid fa-check"></i>}
+                                        حفظ التعيين
+                                    </button>
+                                </div>
+                            </form>
+                        )}
+
+                        {/* 4. Team Heads List with Nested Members */}
+                        {filteredAssignments.length === 0 ? (
+                            <div className="py-10 text-center text-slate-400 bg-slate-950/40 border border-slate-800 rounded-2xl">
+                                <i className="fa-solid fa-user-group text-3xl mb-2 text-slate-600"></i>
+                                <p className="font-bold text-slate-300">لا يوجد رؤساء فرق معينين ضمن هذا الفلتر</p>
+                                <p className="text-xs text-slate-500 mt-1">اضغط على «تعيين رئيس فريق جديد» لإضافة مشرفين وربط الأعضاء تحتهم.</p>
+                            </div>
+                        ) : (
+                            <div className="space-y-4">
+                                {filteredAssignments.map(asgn => {
+                                    const isProjectScope = asgn.scope === 'PROJECT';
+                                    const members = asgn.members || [];
+                                    const isAddingMember = activeMemberFormFor === asgn.id;
+                                    const canManageThisHead = canManage || asgn.team_head_id === (profile && profile.id);
+
+                                    return (
+                                        <div key={asgn.id} className="bg-slate-950/70 border border-slate-800 rounded-2xl p-4 space-y-3.5 hover:border-slate-700 transition-colors">
+                                            {/* Head Header */}
+                                            <div className="flex flex-wrap items-start justify-between gap-3">
+                                                <div className="flex items-start gap-3">
+                                                    <div className={cx('w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-base shadow-md',
+                                                        isProjectScope ? 'bg-gradient-to-br from-purple-600 to-indigo-700 shadow-purple-900/30' : 'bg-gradient-to-br from-cyan-600 to-blue-700 shadow-cyan-900/30')}>
+                                                        <i className={cx('fa-solid', isProjectScope ? 'fa-crown' : 'fa-users-viewfinder')}></i>
+                                                    </div>
+                                                    <div>
+                                                        <div className="flex flex-wrap items-center gap-2">
+                                                            <strong className="text-white text-sm">{asgn.head_name}</strong>
+                                                            <span className={cx('px-2 py-0.5 rounded-full text-[10px] font-bold border',
+                                                                isProjectScope ? 'bg-purple-950/80 text-purple-300 border-purple-500/30' : 'bg-cyan-950/80 text-cyan-300 border-cyan-500/30')}>
+                                                                {isProjectScope ? 'مشرف المشروع ككل' : `مشرف خطة: ${asgn.plan_title || asgn.plan_track || 'خطة محددة'}`}
+                                                            </span>
+                                                            {asgn.title && (
+                                                                <span className="text-slate-400 text-xs bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
+                                                                    {asgn.title}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <div className="text-xs text-slate-400 mt-1 flex flex-wrap items-center gap-2" dir="ltr">
+                                                            <span>{asgn.head_email}</span>
+                                                            {asgn.head_position && <span className="text-slate-500">· {asgn.head_position}</span>}
+                                                            {asgn.notes && <span className="text-slate-500" dir="rtl">· {asgn.notes}</span>}
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center gap-2">
+                                                    {canManageThisHead && !isAddingMember && (
+                                                        <button type="button" onClick={() => { setActiveMemberFormFor(asgn.id); setMemberForm({ user_id: '', role_title: '', notes: '' }); }}
+                                                                className="px-2.5 py-1 bg-slate-800 hover:bg-emerald-600 text-slate-300 hover:text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-colors border border-slate-700">
+                                                            <i className="fa-solid fa-plus text-emerald-400"></i>
+                                                            إضافة عضو
+                                                        </button>
+                                                    )}
+                                                    {canManage && (
+                                                        <button type="button" onClick={() => handleDeleteHead(asgn)} disabled={busy}
+                                                                title="إلغاء تعيين رئيس الفريق"
+                                                                className="w-7 h-7 bg-slate-800 hover:bg-rose-600 text-slate-400 hover:text-white rounded-lg flex items-center justify-center text-xs transition-colors">
+                                                            <i className="fa-solid fa-trash-can"></i>
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* Add Member Inline Form */}
+                                            {isAddingMember && (
+                                                <form onSubmit={(e) => handleAddMember(asgn.id, e)} className="p-3 bg-slate-900 border border-emerald-500/40 rounded-xl space-y-3">
+                                                    <div className="flex items-center justify-between text-xs font-bold text-emerald-400">
+                                                        <span><i className="fa-solid fa-user-plus me-1"></i> إضافة عضو جديد تحت إشراف «{asgn.head_name}»</span>
+                                                        <button type="button" onClick={() => setActiveMemberFormFor(null)} className="text-slate-400 hover:text-white">
+                                                            <i className="fa-solid fa-xmark"></i>
+                                                        </button>
+                                                    </div>
+                                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                                                        <div>
+                                                            <label className="block text-[11px] text-slate-300 font-bold mb-1">عضو الفريق <span className="text-rose-400">*</span></label>
+                                                            <select value={memberForm.user_id} onChange={e => setMemberForm({ ...memberForm, user_id: e.target.value })}
+                                                                    required
+                                                                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-emerald-500 focus:outline-none">
+                                                                <option value="">-- اختر المستخدم --</option>
+                                                                {availableUsers.map(u => (
+                                                                    <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-[11px] text-slate-300 font-bold mb-1">الدور / التخصص</label>
+                                                            <input type="text" value={memberForm.role_title} onChange={e => setMemberForm({ ...memberForm, role_title: e.target.value })}
+                                                                   placeholder="مثال: مصمم جرافيك، محرر"
+                                                                   className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-emerald-500 focus:outline-none" />
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-[11px] text-slate-300 font-bold mb-1">ملاحظات</label>
+                                                            <input type="text" value={memberForm.notes} onChange={e => setMemberForm({ ...memberForm, notes: e.target.value })}
+                                                                   placeholder="ملاحظات اختيارية"
+                                                                   className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-emerald-500 focus:outline-none" />
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex justify-end gap-2">
+                                                        <button type="button" onClick={() => setActiveMemberFormFor(null)} disabled={busy} className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-bold">
+                                                            إلغاء
+                                                        </button>
+                                                        <button type="submit" disabled={busy} className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center gap-1">
+                                                            {busy ? <i className="fa-solid fa-circle-notch fa-spin"></i> : <i className="fa-solid fa-check"></i>}
+                                                            إضافة العضو
+                                                        </button>
+                                                    </div>
+                                                </form>
+                                            )}
+
+                                            {/* Members Sub-List */}
+                                            <div className="border-t border-slate-800/80 pt-2.5">
+                                                <div className="text-[11px] text-slate-400 font-bold mb-2 flex items-center justify-between">
+                                                    <span>أعضاء الفريق ({members.length})</span>
+                                                </div>
+
+                                                {members.length === 0 ? (
+                                                    <p className="text-xs text-slate-500 italic py-1">لا يوجد أعضاء مضافون تحت هذا المشرف حتى الآن.</p>
+                                                ) : (
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                                                        {members.map(m => (
+                                                            <div key={m.id} className="p-2.5 bg-slate-900/90 border border-slate-800 rounded-xl flex items-center justify-between gap-2">
+                                                                <div className="min-w-0 flex-1">
+                                                                    <strong className="block text-white text-xs truncate">{m.user_name}</strong>
+                                                                    <div className="text-[10px] text-slate-400 flex items-center gap-1.5 truncate mt-0.5">
+                                                                        <span className="text-cyan-400 font-medium">{m.role_title || 'عضو فريق'}</span>
+                                                                        <span>·</span>
+                                                                        <span dir="ltr" className="truncate">{m.user_email}</span>
+                                                                    </div>
+                                                                </div>
+                                                                {canManageThisHead && (
+                                                                    <button type="button" onClick={() => handleDeleteMember(asgn.id, m)} disabled={busy}
+                                                                            title="إزالة العضو من الفريق"
+                                                                            className="w-6 h-6 text-slate-500 hover:text-rose-400 hover:bg-slate-800 rounded flex items-center justify-center transition-colors">
+                                                                        <i className="fa-solid fa-xmark text-xs"></i>
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                )}
+            </Modal>
+        );
+    }
+
     const HIERARCHY_ENTITIES = [
         { key: 'projects', label: 'المشاريع (المستوى 1)', icon: 'fa-solid fa-folder-tree', desc: 'الكيان الرئيسي الأعلى الذي تنبثق منه الخطط والمنتجات والمراحل والمهام' },
         { key: 'project-plans', label: 'خطط ومسارات المشاريع (المستوى 2)', icon: 'fa-solid fa-route', desc: 'المسارات والخطط الفرعية التابعة لكل مشروع (مثل: صناعة المحتوى، الحملات الرقمية)' },
@@ -3405,7 +3872,7 @@
         );
     }
 
-    function ProjectsManagementSection({ data, profile, api, refresh, onEditProject, onCreateProject, onSafeDeleteProject, onOpenImport, toast }) {
+    function ProjectsManagementSection({ data, profile, api, refresh, onEditProject, onCreateProject, onSafeDeleteProject, onManageProjectTeam, onOpenImport, toast }) {
         const [search, setSearch] = useState('');
         const [statusFilter, setStatusFilter] = useState('all');
         const [orgFilter, setOrgFilter] = useState('all');
@@ -3544,7 +4011,7 @@
                         </div>
                     ) : (
                         <div className="overflow-x-auto">
-                            <table className="w-full text-xs min-w-[68rem]">
+                            <table className="w-full text-xs min-w-[72rem]">
                                 <thead>
                                     <tr className="border-b border-slate-800 text-slate-400 bg-slate-950/60 text-start">
                                         <th className="p-3.5 cursor-pointer hover:text-white" onClick={() => toggleSort('name')}>
@@ -3552,6 +4019,7 @@
                                         </th>
                                         <th className="p-3.5">الجهة</th>
                                         <th className="p-3.5">المدير المسؤول</th>
+                                        <th className="p-3.5 text-center">فريق العمل</th>
                                         <th className="p-3.5">الفترة المخططة</th>
                                         <th className="p-3.5 text-center">الخطط</th>
                                         <th className="p-3.5 text-center">المنتجات</th>
@@ -3587,6 +4055,16 @@
                                                 </td>
                                                 <td className="p-3.5 text-slate-300 whitespace-nowrap">
                                                     {proj.manager_name || (byId(data.profiles, proj.manager_id) ? byId(data.profiles, proj.manager_id).name : '—')}
+                                                </td>
+                                                <td className="p-3.5 text-center whitespace-nowrap">
+                                                    <button type="button" onClick={() => onManageProjectTeam && onManageProjectTeam(proj)}
+                                                            title="إدارة هيكل فريق العمل والمشرفين والأعضاء"
+                                                            className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg text-xs font-bold transition-all border border-slate-700/80 hover:border-cyan-500/50 shadow-sm">
+                                                        <i className="fa-solid fa-users text-cyan-400"></i>
+                                                        <span>{proj.team_heads_count !== undefined ? Number(proj.team_heads_count) : 0} مشرف</span>
+                                                        <span className="text-slate-600">|</span>
+                                                        <span className="text-emerald-400">{proj.team_members_count !== undefined ? Number(proj.team_members_count) : 0} عضو</span>
+                                                    </button>
                                                 </td>
                                                 <td className="p-3.5 font-mono text-slate-400 whitespace-nowrap" dir="ltr">
                                                     {proj.planned_start ? proj.planned_start.slice(0, 10) : '—'} → {proj.planned_end ? proj.planned_end.slice(0, 10) : '—'}
@@ -3628,6 +4106,11 @@
                                                 </td>
                                                 <td className="p-3.5 text-center whitespace-nowrap">
                                                     <div className="inline-flex items-center gap-1">
+                                                        <button type="button" onClick={() => onManageProjectTeam && onManageProjectTeam(proj)}
+                                                                title="إدارة هيكل فريق العمل والمشرفين"
+                                                                className="w-7 h-7 bg-slate-800 hover:bg-cyan-600 text-slate-300 hover:text-white rounded-lg flex items-center justify-center transition-colors">
+                                                            <i className="fa-solid fa-users-gear"></i>
+                                                        </button>
                                                         <button type="button" onClick={() => onEditProject(proj)}
                                                                 title="تعديل بيانات المشروع"
                                                                 className="w-7 h-7 bg-slate-800 hover:bg-blue-600 text-slate-300 hover:text-white rounded-lg flex items-center justify-center transition-colors">
@@ -4229,7 +4712,7 @@
         );
     }
 
-    function SettingsScreen({ data, profile, settings, onSave, saving, drive, driveConnected, onConnect, toast, onEditUser, onDeleteUser, onInviteUser, onResetPasswordUser, onEditProject, onCreateProject, onSafeDeleteProject, onOpenImport, api, refresh }) {
+    function SettingsScreen({ data, profile, settings, onSave, saving, drive, driveConnected, onConnect, toast, onEditUser, onDeleteUser, onInviteUser, onResetPasswordUser, onEditProject, onCreateProject, onSafeDeleteProject, onManageProjectTeam, onOpenImport, api, refresh }) {
         const mayManageDrive = can(profile, 'Settings.Integrations');
         const mayManageUsers = can(profile, 'Settings.Users');
         const mayManageOrgs = canAny(profile, 'Organizations.View', 'Organizations.Create', 'Organizations.Edit', 'Settings.General') || isAdmin(profile);
@@ -4275,6 +4758,7 @@
                                                onEditProject={onEditProject}
                                                onCreateProject={onCreateProject}
                                                onSafeDeleteProject={onSafeDeleteProject}
+                                               onManageProjectTeam={onManageProjectTeam}
                                                onOpenImport={onOpenImport}
                                                toast={toast} />
                 )}
@@ -6254,6 +6738,7 @@
         const [masterPlanImportOpen, setMasterPlanImportOpen] = useState(false);
         const [projectModal, setProjectModal] = useState(null); // { initial } | null
         const [safeDeleteModal, setSafeDeleteModal] = useState(null); // project | null
+        const [projectTeamModal, setProjectTeamModal] = useState(null); // project | null
         const [hierarchyImportModal, setHierarchyImportModal] = useState(null); // { entity: 'projects' } | null
         const [confirmState, setConfirmState] = useState(null);
         const [busy, setBusy] = useState(false);
@@ -6819,6 +7304,7 @@
                                                           onEditProject={(p) => setProjectModal({ initial: p })}
                                                           onCreateProject={() => setProjectModal({ initial: null })}
                                                           onSafeDeleteProject={(p) => setSafeDeleteModal(p)}
+                                                          onManageProjectTeam={(p) => setProjectTeamModal(p)}
                                                           onOpenImport={(ent) => setHierarchyImportModal({ entity: ent || 'projects' })} />}
                     </main>
                 </div>
@@ -6856,6 +7342,10 @@
                 <SafeDeleteProjectModal open={!!safeDeleteModal} project={safeDeleteModal}
                                         api={api} onClose={() => setSafeDeleteModal(null)}
                                         onDeleted={refresh} onArchived={refresh} toast={toast} />
+                <ProjectTeamModal open={!!projectTeamModal} project={projectTeamModal}
+                                  api={api} profile={profile}
+                                  onClose={() => setProjectTeamModal(null)}
+                                  toast={toast} onUpdated={refresh} />
                 <HierarchicalImportModal open={!!hierarchyImportModal}
                                          initialEntity={hierarchyImportModal && hierarchyImportModal.entity}
                                          api={api} onClose={() => setHierarchyImportModal(null)}

@@ -21,6 +21,8 @@ if (!fs.existsSync(BACKUPS_DIR)) {
 const HIERARCHY_TABLES = [
   'projects',
   'master_plan_items',
+  'project_team_assignments',
+  'project_team_members',
   'products',
   'tasks',
   'files',

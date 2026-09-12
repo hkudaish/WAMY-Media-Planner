@@ -1116,8 +1116,12 @@ app.get('/api/projects', requireActive, async (req, res, next) => {
               coalesce(phases.cnt, 0)::int as phases_count,
               coalesce(tasks.cnt, 0)::int as tasks_count,
               coalesce(tasks.progress, 0)::int as progress,
+              coalesce(heads.cnt, 0)::int as team_heads_count,
+              coalesce(members.cnt, 0)::int as team_members_count,
               mgr.name as manager_name,
-              mgr.email as manager_email
+              mgr.email as manager_email,
+              mgr.avatar_url as manager_avatar,
+              mgr.position as manager_position
          from projects p
          left join profiles mgr on mgr.id = p.manager_id
          left join (
@@ -1139,11 +1143,26 @@ app.get('/api/projects', requireActive, async (req, res, next) => {
            select project_id, count(*) as cnt, round(avg(progress))::int as progress
            from tasks where deleted_at is null group by project_id
          ) tasks on tasks.project_id = p.id
+         left join (
+           select project_id, count(distinct team_head_id) as cnt
+           from project_team_assignments where deleted_at is null and is_active = true group by project_id
+         ) heads on heads.project_id = p.id
+         left join (
+           select pta.project_id, count(distinct ptm.user_id) as cnt
+           from project_team_members ptm
+           join project_team_assignments pta on pta.id = ptm.assignment_id
+           where ptm.deleted_at is null and ptm.is_active = true and pta.deleted_at is null
+           group by pta.project_id
+         ) members on members.project_id = p.id
         where p.deleted_at is null
           and (p.is_system = false or $5::boolean)
-          and ($1::boolean or p.manager_id=$3
-          or ($4='my_project' and p.manager_id=$3)
-          or ($4 in ('my_team','my_department') and p.org=$2))
+          and ($1::boolean
+            or p.manager_id = $3
+            or exists (select 1 from project_team_assignments pta where pta.project_id = p.id and pta.team_head_id = $3 and pta.is_active = true and pta.deleted_at is null)
+            or exists (select 1 from project_team_members ptm join project_team_assignments pta on pta.id = ptm.assignment_id where pta.project_id = p.id and ptm.user_id = $3 and ptm.is_active = true and ptm.deleted_at is null and pta.deleted_at is null)
+            or ($4 = 'my_project' and p.manager_id = $3)
+            or ($4 in ('my_team', 'my_department') and p.org = $2)
+          )
         order by coalesce(p.hierarchical_code, p.code)`,
       [privileged, req.user.org, req.user.id, req.user.data_scope || 'my_data', includeSystem]
     );
@@ -1325,6 +1344,322 @@ app.patch('/api/projects/:id', requireActive, async (req, res, next) => {
 });
 
 // -----------------------------------------------------------------------------
+// Project Team Structure & Plan Assignments Routes
+// -----------------------------------------------------------------------------
+
+// GET /api/projects/:id/team - Get complete project team hierarchy
+app.get('/api/projects/:id/team', requireActive, async (req, res, next) => {
+  if (!canAny(req.user, 'Projects.View', 'MainPlan.View', 'Plans.View', 'Tasks.View', 'Settings.Users')) return forbid(res);
+  try {
+    const projRes = await pool.query(
+      `select p.id, p.code, p.hierarchical_code, p.name, p.status, p.org, p.manager_id,
+              mgr.name as manager_name, mgr.email as manager_email, mgr.avatar_url as manager_avatar,
+              mgr.position as manager_position, mgr.department as manager_department
+         from projects p
+         left join profiles mgr on mgr.id = p.manager_id
+        where p.id = $1 and p.deleted_at is null`,
+      [req.params.id]
+    );
+    if (!projRes.rows[0]) return res.status(404).json({ message: 'المشروع غير موجود.' });
+    const project = projRes.rows[0];
+
+    // Check project access if not admin
+    if (!isAdmin(req.user) && !hasAllData(req.user)) {
+      const isMgr = project.manager_id === req.user.id;
+      const isHead = (await pool.query(
+        'select 1 from project_team_assignments where project_id = $1 and team_head_id = $2 and deleted_at is null and is_active = true',
+        [req.params.id, req.user.id]
+      )).rowCount > 0;
+      const isMember = (await pool.query(
+        `select 1 from project_team_members ptm
+           join project_team_assignments pta on pta.id = ptm.assignment_id
+          where pta.project_id = $1 and ptm.user_id = $2 and ptm.deleted_at is null and ptm.is_active = true and pta.deleted_at is null`,
+        [req.params.id, req.user.id]
+      )).rowCount > 0;
+      if (!isMgr && !isHead && !isMember && project.org !== req.user.org) {
+        return forbid(res);
+      }
+    }
+
+    // Get assignments with team heads and plans
+    const assignmentsRes = await pool.query(
+      `select pta.*,
+              head.name as head_name, head.email as head_email, head.avatar_url as head_avatar,
+              head.position as head_position, head.department as head_department, head.org as head_org,
+              plan.title as plan_title, plan.track as plan_track, plan.item_type as plan_item_type,
+              plan.external_id as plan_external_id, plan.hierarchical_code as plan_hierarchical_code
+         from project_team_assignments pta
+         join profiles head on head.id = pta.team_head_id
+         left join master_plan_items plan on plan.id = pta.plan_item_id
+        where pta.project_id = $1 and pta.deleted_at is null
+        order by pta.scope, coalesce(plan.track, plan.title, ''), head.name`,
+      [req.params.id]
+    );
+
+    const assignmentIds = assignmentsRes.rows.map(r => r.id);
+    let membersByAssignment = {};
+    if (assignmentIds.length > 0) {
+      const membersRes = await pool.query(
+        `select ptm.*,
+                u.name as user_name, u.email as user_email, u.avatar_url as user_avatar,
+                u.position as user_position, u.department as user_department, u.org as user_org
+           from project_team_members ptm
+           join profiles u on u.id = ptm.user_id
+          where ptm.assignment_id = any($1::uuid[]) and ptm.deleted_at is null
+          order by u.name`,
+        [assignmentIds]
+      );
+      for (const m of membersRes.rows) {
+        if (!membersByAssignment[m.assignment_id]) membersByAssignment[m.assignment_id] = [];
+        membersByAssignment[m.assignment_id].push(m);
+      }
+    }
+
+    const assignments = assignmentsRes.rows.map(a => ({
+      ...a,
+      members: membersByAssignment[a.id] || []
+    }));
+
+    // Available plans in this project for assignment
+    const plansRes = await pool.query(
+      `select id, title, track, phase, item_type, external_id, hierarchical_code
+         from master_plan_items
+        where project_id = $1 and deleted_at is null
+        order by coalesce(track, ''), title`,
+      [req.params.id]
+    );
+
+    // Available users for selection
+    const usersRes = await pool.query(
+      `select id, name, email, avatar_url, position, department, org, role
+         from profiles
+        where deleted_at is null and status = 'active'
+        order by name`
+    );
+
+    res.json({
+      project,
+      assignments,
+      available_plans: plansRes.rows,
+      available_users: usersRes.rows
+    });
+  } catch (error) { next(error); }
+});
+
+// POST /api/projects/:id/team/assignments - Add Team Head assignment
+app.post('/api/projects/:id/team/assignments', requireActive, async (req, res, next) => {
+  try {
+    const proj = (await pool.query('select manager_id, org from projects where id = $1 and deleted_at is null', [req.params.id])).rows[0];
+    if (!proj) return res.status(404).json({ message: 'المشروع غير موجود.' });
+
+    const isAuthorized = isAdmin(req.user) || proj.manager_id === req.user.id || can(req.user, 'Projects.Edit');
+    if (!isAuthorized) return forbid(res);
+
+    const { team_head_id, scope, plan_item_id, title, effective_from, effective_to, notes } = req.body;
+    if (!team_head_id) return invalid(res, 'يجب تحديد رئيس الفريق.');
+    if (!['PROJECT', 'PLAN'].includes(scope)) return invalid(res, 'نطاق التعيين يجب أن يكون PROJECT أو PLAN.');
+
+    if (scope === 'PLAN') {
+      if (!plan_item_id) return invalid(res, 'يجب تحديد بند الخطة عند اختيار نطاق التعيين على مستوى الخطة.');
+      const planCheck = await pool.query('select id from master_plan_items where id = $1 and project_id = $2 and deleted_at is null', [plan_item_id, req.params.id]);
+      if (!planCheck.rows[0]) return invalid(res, 'بند الخطة المحدد غير موجود ضمن هذا المشروع.');
+    }
+
+    const headCheck = await pool.query('select id, name from profiles where id = $1 and deleted_at is null and status = \'active\'', [team_head_id]);
+    if (!headCheck.rows[0]) return invalid(res, 'المستخدم المحدد كرئيس فريق غير موجود أو غير نشط.');
+
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      const { rows } = await client.query(
+        `insert into project_team_assignments (project_id, plan_item_id, team_head_id, scope, title, effective_from, effective_to, notes, created_by)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         returning *`,
+        [req.params.id, scope === 'PLAN' ? plan_item_id : null, team_head_id, scope, title || null, effective_from || null, effective_to || null, notes || null, req.user.id]
+      );
+      await writeAudit(client, req, 'تعيين رئيس فريق للمشروع', 'CREATE', 'project_team_assignments', rows[0].id, {
+        project_id: req.params.id, team_head: headCheck.rows[0].name, scope, plan_item_id
+      });
+      await client.query('commit');
+      res.status(201).json(rows[0]);
+    } catch (err) {
+      await client.query('rollback');
+      throw err;
+    } finally { client.release(); }
+  } catch (error) { next(error); }
+});
+
+// PATCH /api/projects/:id/team/assignments/:assignmentId - Update Team Head assignment
+app.patch('/api/projects/:id/team/assignments/:assignmentId', requireActive, async (req, res, next) => {
+  try {
+    const proj = (await pool.query('select manager_id from projects where id = $1 and deleted_at is null', [req.params.id])).rows[0];
+    if (!proj) return res.status(404).json({ message: 'المشروع غير موجود.' });
+
+    const isAuthorized = isAdmin(req.user) || proj.manager_id === req.user.id || can(req.user, 'Projects.Edit');
+    if (!isAuthorized) return forbid(res);
+
+    const allowed = ['title', 'is_active', 'effective_from', 'effective_to', 'notes', 'scope', 'plan_item_id'];
+    const patch = cleanObject(req.body, allowed);
+
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      const stmt = updateStatement('project_team_assignments', req.params.assignmentId, patch, allowed);
+      if (!stmt) { await client.query('rollback'); return res.json({ message: 'لا توجد تغييرات.' }); }
+      const { rows } = await client.query(stmt.text, stmt.values);
+      if (!rows[0]) { await client.query('rollback'); return res.status(404).json({ message: 'التعيين غير موجود.' }); }
+      await writeAudit(client, req, 'تعديل تعيين رئيس فريق', 'UPDATE', 'project_team_assignments', req.params.assignmentId, patch);
+      await client.query('commit');
+      res.json(rows[0]);
+    } catch (err) {
+      await client.query('rollback');
+      throw err;
+    } finally { client.release(); }
+  } catch (error) { next(error); }
+});
+
+// DELETE /api/projects/:id/team/assignments/:assignmentId - Remove Team Head assignment
+app.delete('/api/projects/:id/team/assignments/:assignmentId', requireActive, async (req, res, next) => {
+  try {
+    const proj = (await pool.query('select manager_id from projects where id = $1 and deleted_at is null', [req.params.id])).rows[0];
+    if (!proj) return res.status(404).json({ message: 'المشروع غير موجود.' });
+
+    const isAuthorized = isAdmin(req.user) || proj.manager_id === req.user.id || can(req.user, 'Projects.Edit');
+    if (!isAuthorized) return forbid(res);
+
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('update project_team_members set deleted_at = now() where assignment_id = $1 and deleted_at is null', [req.params.assignmentId]);
+      const { rows } = await client.query(
+        'update project_team_assignments set deleted_at = now(), is_active = false where id = $1 and project_id = $2 and deleted_at is null returning *',
+        [req.params.assignmentId, req.params.id]
+      );
+      if (!rows[0]) { await client.query('rollback'); return res.status(404).json({ message: 'التعيين غير موجود.' }); }
+      await writeAudit(client, req, 'إلغاء تعيين رئيس فريق', 'DELETE', 'project_team_assignments', req.params.assignmentId);
+      await client.query('commit');
+      res.json({ success: true, id: req.params.assignmentId });
+    } catch (err) {
+      await client.query('rollback');
+      throw err;
+    } finally { client.release(); }
+  } catch (error) { next(error); }
+});
+
+// POST /api/projects/:id/team/assignments/:assignmentId/members - Add Team Member
+app.post('/api/projects/:id/team/assignments/:assignmentId/members', requireActive, async (req, res, next) => {
+  try {
+    const asgnRes = await pool.query(
+      `select pta.*, p.manager_id
+         from project_team_assignments pta
+         join projects p on p.id = pta.project_id
+        where pta.id = $1 and pta.project_id = $2 and pta.deleted_at is null`,
+      [req.params.assignmentId, req.params.id]
+    );
+    if (!asgnRes.rows[0]) return res.status(404).json({ message: 'تعيين رئيس الفريق غير موجود.' });
+    const asgn = asgnRes.rows[0];
+
+    const isAuthorized = isAdmin(req.user) || asgn.manager_id === req.user.id || asgn.team_head_id === req.user.id || can(req.user, 'Projects.Edit');
+    if (!isAuthorized) return forbid(res);
+
+    const { user_id, role_title, joined_at, notes } = req.body;
+    if (!user_id) return invalid(res, 'يجب تحديد عضو الفريق.');
+
+    const userCheck = await pool.query('select id, name from profiles where id = $1 and deleted_at is null and status = \'active\'', [user_id]);
+    if (!userCheck.rows[0]) return invalid(res, 'المستخدم المحدد غير موجود أو غير نشط.');
+
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      const { rows } = await client.query(
+        `insert into project_team_members (assignment_id, user_id, role_title, joined_at, notes, created_by)
+         values ($1, $2, $3, coalesce($4, current_date), $5, $6)
+         returning *`,
+        [req.params.assignmentId, user_id, role_title || null, joined_at || null, notes || null, req.user.id]
+      );
+      await writeAudit(client, req, 'إضافة عضو إلى فريق المشروع', 'CREATE', 'project_team_members', rows[0].id, {
+        assignment_id: req.params.assignmentId, user_id, user_name: userCheck.rows[0].name, role_title
+      });
+      await client.query('commit');
+      res.status(201).json(rows[0]);
+    } catch (err) {
+      await client.query('rollback');
+      throw err;
+    } finally { client.release(); }
+  } catch (error) { next(error); }
+});
+
+// PATCH /api/projects/:id/team/assignments/:assignmentId/members/:memberId - Update Team Member
+app.patch('/api/projects/:id/team/assignments/:assignmentId/members/:memberId', requireActive, async (req, res, next) => {
+  try {
+    const asgnRes = await pool.query(
+      `select pta.*, p.manager_id
+         from project_team_assignments pta
+         join projects p on p.id = pta.project_id
+        where pta.id = $1 and pta.project_id = $2 and pta.deleted_at is null`,
+      [req.params.assignmentId, req.params.id]
+    );
+    if (!asgnRes.rows[0]) return res.status(404).json({ message: 'تعيين رئيس الفريق غير موجود.' });
+    const asgn = asgnRes.rows[0];
+
+    const isAuthorized = isAdmin(req.user) || asgn.manager_id === req.user.id || asgn.team_head_id === req.user.id || can(req.user, 'Projects.Edit');
+    if (!isAuthorized) return forbid(res);
+
+    const allowed = ['role_title', 'is_active', 'joined_at', 'left_at', 'notes'];
+    const patch = cleanObject(req.body, allowed);
+
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      const stmt = updateStatement('project_team_members', req.params.memberId, patch, allowed);
+      if (!stmt) { await client.query('rollback'); return res.json({ message: 'لا توجد تغييرات.' }); }
+      const { rows } = await client.query(stmt.text, stmt.values);
+      if (!rows[0]) { await client.query('rollback'); return res.status(404).json({ message: 'عضو الفريق غير موجود.' }); }
+      await writeAudit(client, req, 'تعديل عضو فريق المشروع', 'UPDATE', 'project_team_members', req.params.memberId, patch);
+      await client.query('commit');
+      res.json(rows[0]);
+    } catch (err) {
+      await client.query('rollback');
+      throw err;
+    } finally { client.release(); }
+  } catch (error) { next(error); }
+});
+
+// DELETE /api/projects/:id/team/assignments/:assignmentId/members/:memberId - Remove Team Member
+app.delete('/api/projects/:id/team/assignments/:assignmentId/members/:memberId', requireActive, async (req, res, next) => {
+  try {
+    const asgnRes = await pool.query(
+      `select pta.*, p.manager_id
+         from project_team_assignments pta
+         join projects p on p.id = pta.project_id
+        where pta.id = $1 and pta.project_id = $2 and pta.deleted_at is null`,
+      [req.params.assignmentId, req.params.id]
+    );
+    if (!asgnRes.rows[0]) return res.status(404).json({ message: 'تعيين رئيس الفريق غير موجود.' });
+    const asgn = asgnRes.rows[0];
+
+    const isAuthorized = isAdmin(req.user) || asgn.manager_id === req.user.id || asgn.team_head_id === req.user.id || can(req.user, 'Projects.Edit');
+    if (!isAuthorized) return forbid(res);
+
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      const { rows } = await client.query(
+        'update project_team_members set deleted_at = now(), is_active = false where id = $1 and assignment_id = $2 and deleted_at is null returning *',
+        [req.params.memberId, req.params.assignmentId]
+      );
+      if (!rows[0]) { await client.query('rollback'); return res.status(404).json({ message: 'عضو الفريق غير موجود.' }); }
+      await writeAudit(client, req, 'إزالة عضو من فريق المشروع', 'DELETE', 'project_team_members', req.params.memberId);
+      await client.query('commit');
+      res.json({ success: true, id: req.params.memberId });
+    } catch (err) {
+      await client.query('rollback');
+      throw err;
+    } finally { client.release(); }
+  } catch (error) { next(error); }
+});
+
+// -----------------------------------------------------------------------------
 // Hierarchical Excel Templates, Exports, and Imports (Projects, Plans, Products, Phases)
 // -----------------------------------------------------------------------------
 const HIERARCHY_ENTITIES = ['projects', 'project-plans', 'project-products', 'project-phases'];
@@ -1457,11 +1792,23 @@ app.get('/api/master-plan-items', requireActive, async (req, res, next) => {
   try {
     const privileged = hasAllData(req.user);
     const { rows } = await pool.query(
-      `select i.* from master_plan_items i join projects p on p.id=i.project_id
+      `select i.*,
+              p.name as project_name,
+              p.code as project_code,
+              coalesce(p.hierarchical_code, p.code) as project_hierarchical_code
+         from master_plan_items i
+         join projects p on p.id = i.project_id
         where i.deleted_at is null and p.deleted_at is null
-          and ($1::boolean or p.manager_id=$3 or (($4 in ('my_team','my_department')) and p.org=$2))
-        order by p.code,i.planned_start nulls last,i.external_id`,
-      [privileged, req.user.org, req.user.id,req.user.data_scope || 'my_data']
+          and ($1::boolean
+            or p.manager_id = $3
+            or exists (select 1 from project_team_assignments pta where pta.project_id = p.id and pta.team_head_id = $3 and pta.scope = 'PROJECT' and pta.is_active = true and pta.deleted_at is null)
+            or exists (select 1 from project_team_assignments pta where pta.plan_item_id = i.id and pta.team_head_id = $3 and pta.scope = 'PLAN' and pta.is_active = true and pta.deleted_at is null)
+            or exists (select 1 from project_team_members ptm join project_team_assignments pta on pta.id = ptm.assignment_id where (pta.scope = 'PROJECT' and pta.project_id = p.id or pta.scope = 'PLAN' and pta.plan_item_id = i.id) and ptm.user_id = $3 and ptm.is_active = true and ptm.deleted_at is null and pta.deleted_at is null)
+            or exists (select 1 from tasks t where t.plan_item_id = i.id and (t.assignee_id = $3 or exists (select 1 from task_assignees ta where ta.task_id = t.id and ta.user_id = $3)) and t.deleted_at is null)
+            or (($4 in ('my_team','my_department')) and p.org = $2)
+          )
+        order by p.code, i.planned_start nulls last, i.external_id`,
+      [privileged, req.user.org, req.user.id, req.user.data_scope || 'my_data']
     );
     res.json(rows);
   } catch (error) { next(error); }
@@ -1685,12 +2032,23 @@ function crudRoutes(name, table, orderBy, authorizeCreate, authorizeUpdate, auth
     const privileged = hasAllData(req.user);
     const scoped = name === 'tasks'
       ? `(assignee_id=$4 or exists(select 1 from task_assignees ta where ta.task_id=tasks.id and ta.user_id=$4)
-          or ($8::text='my_project' and exists(select 1 from projects pr where pr.id=tasks.project_id and pr.manager_id=$4))
+          or exists(select 1 from projects pr where pr.id=tasks.project_id and pr.manager_id=$4)
+          or exists(select 1 from project_team_assignments pta where pta.project_id=tasks.project_id and pta.team_head_id=$4 and pta.scope='PROJECT' and pta.is_active=true and pta.deleted_at is null)
+          or exists(select 1 from project_team_assignments pta where pta.plan_item_id=tasks.plan_item_id and pta.team_head_id=$4 and pta.scope='PLAN' and pta.is_active=true and pta.deleted_at is null)
+          or exists(select 1 from project_team_members ptm join project_team_assignments pta on pta.id=ptm.assignment_id where (pta.scope='PROJECT' and pta.project_id=tasks.project_id or pta.scope='PLAN' and pta.plan_item_id=tasks.plan_item_id) and ptm.user_id=$4 and ptm.is_active=true and ptm.deleted_at is null and pta.deleted_at is null)
           or ($8::text='my_department' and $6::text is not null and exists(select 1 from task_assignees ta join profiles ap on ap.id=ta.user_id where ta.task_id=tasks.id and ap.org=$5 and ap.department=$6::text))
           or ($8::text='my_team' and $7::text is not null and exists(select 1 from task_assignees ta join profiles ap on ap.id=ta.user_id where ta.task_id=tasks.id and ap.org=$5 and ap.team=$7::text)))`
       : name === 'files'
-        ? `(uploader_id=$4 or ($8::text='my_department' and $6::text is not null and exists(select 1 from profiles ap where ap.id=uploader_id and ap.org=$5 and ap.department=$6::text)) or ($8::text='my_team' and $7::text is not null and exists(select 1 from profiles ap where ap.id=uploader_id and ap.org=$5 and ap.team=$7::text)))`
-        : `(manager_id=$4 or (($8::text in ('my_department','my_team')) and org=$5) or ($6::text is null and $7::text is null and false))`;
+        ? `(uploader_id=$4
+            or exists(select 1 from products prd join projects pr on pr.id=prd.project_id where prd.id=files.product_id and (pr.manager_id=$4 or exists(select 1 from project_team_assignments pta where pta.project_id=pr.id and pta.team_head_id=$4 and pta.is_active=true and pta.deleted_at is null)))
+            or ($8::text='my_department' and $6::text is not null and exists(select 1 from profiles ap where ap.id=uploader_id and ap.org=$5 and ap.department=$6::text))
+            or ($8::text='my_team' and $7::text is not null and exists(select 1 from profiles ap where ap.id=uploader_id and ap.org=$5 and ap.team=$7::text)))`
+        : `(manager_id=$4
+            or exists(select 1 from projects pr where pr.id=products.project_id and pr.manager_id=$4)
+            or exists(select 1 from project_team_assignments pta where pta.project_id=products.project_id and pta.team_head_id=$4 and pta.is_active=true and pta.deleted_at is null)
+            or exists(select 1 from project_team_members ptm join project_team_assignments pta on pta.id=ptm.assignment_id where pta.project_id=products.project_id and ptm.user_id=$4 and ptm.is_active=true and ptm.deleted_at is null and pta.deleted_at is null)
+            or (($8::text in ('my_department','my_team')) and org=$5)
+            or ($6::text is null and $7::text is null and false))`;
     const extra = name === 'tasks'
       ? `,coalesce((select array_agg(ta.user_id order by ta.assigned_at) from task_assignees ta where ta.task_id=tasks.id),'{}'::uuid[]) as assignee_ids`
       : '';
