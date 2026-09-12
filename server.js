@@ -328,7 +328,7 @@ function validatePatch(name, body, creating = false) {
     if (!body.scheduled_start_at || !body.scheduled_due_at) return 'تزمين المهمة المعتمد إلزامي.';
     if (!body.assignee_id) return 'يجب إسناد المهمة إلى مسؤول واحد على الأقل.';
   }
-  if (creating && name === 'products' && (!String(body.code || '').trim() || !String(body.name || '').trim())) return 'رمز المنتج واسمه مطلوبان.';
+  if (creating && name === 'products' && !String(body.name || '').trim()) return 'اسم المنتج مطلوب.';
   if (creating && name === 'files' && !String(body.name || '').trim()) return 'اسم الملف مطلوب.';
   return null;
 }
@@ -1720,11 +1720,15 @@ function crudRoutes(name, table, orderBy, authorizeCreate, authorizeUpdate, auth
           )).rows[0];
           if (defaultProject) req.body.project_id = defaultProject.id;
         }
-        if (!req.body.hierarchical_code && req.body.project_id) {
-          const proj = (await client.query('select code, hierarchical_code from projects where id=$1', [req.body.project_id])).rows[0];
-          const projHCode = (proj && (proj.hierarchical_code || proj.code)) || 'PRJ-001';
-          const countProd = (await client.query('select count(*)::int as cnt from products where project_id=$1', [req.body.project_id])).rows[0].cnt || 0;
-          req.body.hierarchical_code = `${projHCode}-PLN-01-PRD-${String(countProd + 1).padStart(3, '0')}`;
+        const proj = req.body.project_id ? (await client.query('select code, hierarchical_code from projects where id=$1', [req.body.project_id])).rows[0] : null;
+        const projHCode = (proj && (proj.hierarchical_code || proj.code)) || 'PRJ-001';
+        const countProd = req.body.project_id ? (await client.query('select count(*)::int as cnt from products where project_id=$1', [req.body.project_id])).rows[0]?.cnt || 0 : 0;
+        const autoProductCode = `${projHCode}-PLN-01-PRD-${String(countProd + 1).padStart(3, '0')}`;
+        if (!req.body.hierarchical_code) {
+          req.body.hierarchical_code = autoProductCode;
+        }
+        if (!req.body.code) {
+          req.body.code = autoProductCode;
         }
         if (!req.body.legacy_code && req.body.code) {
           req.body.legacy_code = req.body.code;
