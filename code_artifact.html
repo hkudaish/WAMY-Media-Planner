@@ -7282,23 +7282,24 @@
 
     function RenderChatMessage({ text, data, onOpenTask }) {
         if (!text) return null;
+        const strText = typeof text === 'string' ? text : (typeof text === 'object' ? (text.message || JSON.stringify(text)) : String(text));
         // Match @task:UUID, @user:UUID, @procedure:UUID, @sub_procedure:UUID
         const regex = /@(task|user|procedure|sub_procedure):([a-fA-F0-9-]+)/g;
         const parts = [];
         let lastIndex = 0;
         let match;
 
-        while ((match = regex.exec(text)) !== null) {
+        while ((match = regex.exec(strText)) !== null) {
             if (match.index > lastIndex) {
-                parts.push(text.substring(lastIndex, match.index));
+                parts.push(strText.substring(lastIndex, match.index));
             }
             parts.push(
                 <MentionCard key={match.index} type={match[1]} id={match[2]} data={data} onOpenTask={onOpenTask} />
             );
             lastIndex = regex.lastIndex;
         }
-        if (lastIndex < text.length) {
-            parts.push(text.substring(lastIndex));
+        if (lastIndex < strText.length) {
+            parts.push(strText.substring(lastIndex));
         }
 
         return (
@@ -7927,16 +7928,43 @@
         );
     }
 
-    function GlobalChatDrawer({ open, profile, profiles, data, api, onClose, onOpenTask }) {
+    function GlobalChatDrawer({ open, profile, profiles, data, api, onClose, onOpenTask, initialConvId, initialTaskId, initialTab, onReadConversation }) {
         const [conversations, setConversations] = useState([]);
         const [activeConv, setActiveConv] = useState(null);
         const [messages, setMessages] = useState([]);
         const [loading, setLoading] = useState(true);
         const [sending, setSending] = useState(false);
         const [text, setText] = useState('');
-        const [tab, setTab] = useState('direct'); // 'direct' | 'tasks' | 'new'
-        const [newParticipantId, setNewParticipantId] = useState('');
+        const [tab, setTab] = useState(initialTab || 'direct'); // 'direct' | 'tasks' | 'new'
         const messagesEndRef = useRef(null);
+
+        const getMsgText = (lm) => {
+            if (!lm) return '';
+            if (typeof lm === 'string') return lm;
+            if (typeof lm === 'object') return lm.message || '';
+            return String(lm);
+        };
+
+        const getMsgTime = (c) => {
+            if (c.last_message_at) return c.last_message_at;
+            if (c.last_message && typeof c.last_message === 'object' && c.last_message.created_at) return c.last_message.created_at;
+            return c.updated_at || c.created_at;
+        };
+
+        const selectConversation = useCallback(async (conv) => {
+            if (!conv) return;
+            setActiveConv(conv);
+            try {
+                const msgs = await api.chat.getMessages(conv.id);
+                setMessages(msgs || []);
+                api.chat.markAsRead(conv.id).catch(() => {});
+                if (onReadConversation && conv.unread_count > 0) {
+                    onReadConversation(conv.id, conv.unread_count);
+                }
+            } catch (err) {
+                console.error('Failed to load messages:', err);
+            }
+        }, [api, onReadConversation]);
 
         const loadConversations = useCallback(async () => {
             if (!api || !api.chat || !open) return;
@@ -7946,32 +7974,29 @@
                 if (activeConv) {
                     const updated = (list || []).find(c => c.id === activeConv.id);
                     if (updated) setActiveConv(updated);
+                } else if (initialConvId) {
+                    const target = (list || []).find(c => c.id === initialConvId);
+                    if (target) selectConversation(target);
+                } else if (initialTaskId) {
+                    const target = (list || []).find(c => c.task_id === initialTaskId);
+                    if (target) selectConversation(target);
                 }
             } catch (err) {
                 console.error('Failed to load conversations:', err);
             } finally {
                 setLoading(false);
             }
-        }, [api, open, activeConv]);
+        }, [api, open, activeConv, initialConvId, initialTaskId, selectConversation]);
 
         useEffect(() => {
             if (open) {
+                if (initialTab) setTab(initialTab);
+                else if (initialTaskId) setTab('tasks');
                 loadConversations();
                 const timer = setInterval(loadConversations, 8000);
                 return () => clearInterval(timer);
             }
-        }, [open, loadConversations]);
-
-        const selectConversation = async (conv) => {
-            setActiveConv(conv);
-            try {
-                const msgs = await api.chat.getMessages(conv.id);
-                setMessages(msgs || []);
-                api.chat.markAsRead(conv.id).catch(() => {});
-            } catch (err) {
-                console.error('Failed to load messages:', err);
-            }
-        };
+        }, [open, initialTab, initialTaskId, loadConversations]);
 
         useEffect(() => {
             if (activeConv) {
@@ -8026,8 +8051,8 @@
 
         if (!open) return null;
 
-        const directConvs = conversations.filter(c => c.conversation_type === 'direct');
-        const taskConvs = conversations.filter(c => c.conversation_type === 'task_linked');
+        const directConvs = conversations.filter(c => c.conversation_type === 'direct' || c.type === 'DIRECT');
+        const taskConvs = conversations.filter(c => c.conversation_type === 'task_linked' || c.type === 'TASK' || Boolean(c.task_id));
 
         return (
             <div className="fixed inset-0 z-50 overflow-hidden flex justify-end no-print">
@@ -8073,7 +8098,9 @@
                             </div>
 
                             <div className="flex-1 overflow-y-auto p-2 space-y-1 scrollbar-thin">
-                                {tab === 'new' ? (
+                                {loading ? (
+                                    <div className="p-4 text-center"><Spinner label="جارٍ تحميل المحادثات..." /></div>
+                                ) : tab === 'new' ? (
                                     <div className="p-2 space-y-3">
                                         <span className="text-xs font-bold text-white block">بدء محادثة مباشرة جديدة:</span>
                                         <div className="space-y-1">
@@ -8093,29 +8120,37 @@
                                         </div>
                                     </div>
                                 ) : (
-                                    (tab === 'direct' ? directConvs : taskConvs).map(c => {
-                                        const isSelected = activeConv && activeConv.id === c.id;
-                                        return (
-                                            <div key={c.id} onClick={() => selectConversation(c)}
-                                                 className={cx('p-2.5 rounded-xl cursor-pointer transition-colors space-y-1',
-                                                     isSelected ? 'bg-blue-600/20 border border-blue-500/40 text-white' : 'hover:bg-slate-800/60 text-slate-300')}>
-                                                <div className="flex items-center justify-between gap-1">
-                                                    <strong className="text-xs truncate block">{c.title || 'محادثة'}</strong>
-                                                    {c.unread_count > 0 && (
-                                                        <span className="px-1.5 py-0.2 bg-rose-600 text-white text-[10px] rounded-full font-bold">
-                                                            {c.unread_count}
-                                                        </span>
-                                                    )}
+                                    (tab === 'direct' ? directConvs : taskConvs).length === 0 ? (
+                                        <div className="p-4 text-center text-slate-500 text-xs">
+                                            <p>{tab === 'direct' ? 'لا توجد محادثات مباشرة حالياً' : 'لا توجد مناقشات مهام حالياً'}</p>
+                                        </div>
+                                    ) : (
+                                        (tab === 'direct' ? directConvs : taskConvs).map(c => {
+                                            const isSelected = activeConv && activeConv.id === c.id;
+                                            const msgText = getMsgText(c.last_message);
+                                            const msgTime = getMsgTime(c);
+                                            return (
+                                                <div key={c.id} onClick={() => selectConversation(c)}
+                                                     className={cx('p-2.5 rounded-xl cursor-pointer transition-colors space-y-1',
+                                                         isSelected ? 'bg-blue-600/20 border border-blue-500/40 text-white' : 'hover:bg-slate-800/60 text-slate-300')}>
+                                                    <div className="flex items-center justify-between gap-1">
+                                                        <strong className="text-xs truncate block">{c.title || (c.task_id ? 'مناقشة مهمة' : 'محادثة')}</strong>
+                                                        {c.unread_count > 0 && (
+                                                            <span className="px-1.5 py-0.2 bg-rose-600 text-white text-[10px] rounded-full font-bold">
+                                                                {c.unread_count}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    {msgText ? (
+                                                        <p className="text-[11px] text-slate-400 truncate leading-tight">{msgText}</p>
+                                                    ) : null}
+                                                    {msgTime ? (
+                                                        <span className="text-[9px] text-slate-500 font-mono block text-end">{formatDateTime(msgTime)}</span>
+                                                    ) : null}
                                                 </div>
-                                                {c.last_message && (
-                                                    <p className="text-[11px] text-slate-400 truncate leading-tight">{c.last_message}</p>
-                                                )}
-                                                {c.last_message_at && (
-                                                    <span className="text-[9px] text-slate-500 font-mono block text-end">{formatDateTime(c.last_message_at)}</span>
-                                                )}
-                                            </div>
-                                        );
-                                    })
+                                            );
+                                        })
+                                    )
                                 )}
                             </div>
                         </div>
@@ -8129,16 +8164,26 @@
                                             <button type="button" onClick={() => setActiveConv(null)} className="sm:hidden p-1 text-slate-400 hover:text-white me-1">
                                                 <i className="fa-solid fa-arrow-right"></i>
                                             </button>
-                                            <strong className="text-white truncate text-sm">{activeConv.title}</strong>
-                                            {activeConv.task_id && (
+                                            <strong className="text-white truncate text-sm">{activeConv.title || 'محادثة'}</strong>
+                                        </div>
+                                        {activeConv.task_id && (
+                                            <div className="flex items-center gap-2 shrink-0">
                                                 <button type="button" onClick={() => {
                                                     const t = byId(data.tasks || [], activeConv.task_id);
-                                                    if (t && onOpenTask) onOpenTask(t);
-                                                }} className="text-[11px] text-blue-400 hover:underline shrink-0">
-                                                    (عرض المهمة)
+                                                    if (t && onOpenTask) onOpenTask(t, 'procedures');
+                                                }} className="text-[11px] text-blue-400 hover:underline bg-blue-950/60 px-2 py-1 rounded border border-blue-500/30 flex items-center gap-1">
+                                                    <i className="fa-solid fa-list-check text-[10px]"></i>
+                                                    <span>إجراءات المهمة</span>
                                                 </button>
-                                            )}
-                                        </div>
+                                                <button type="button" onClick={() => {
+                                                    const t = byId(data.tasks || [], activeConv.task_id);
+                                                    if (t && onOpenTask) onOpenTask(t, 'overview');
+                                                }} className="text-[11px] text-slate-300 hover:text-white bg-slate-800 px-2 py-1 rounded border border-slate-700 flex items-center gap-1">
+                                                    <i className="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
+                                                    <span>تفاصيل المهمة</span>
+                                                </button>
+                                            </div>
+                                        )}
                                     </div>
 
                                     <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin">
