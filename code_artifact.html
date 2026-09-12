@@ -1315,7 +1315,7 @@
                                             setHighlightedIndex(0);
                                         }}
                                         onKeyDown={handleSearchKeyDown}
-                                        placeholder={allowCustom ? 'ابحث أو اكتب قيمة جديدة...' : 'ابحث بالاسم أو الرمز...'}
+                                        placeholder={allowCustom ? 'ابحث أو اكتب قيمة جديدة...' : 'ابحث بالاسم...'}
                                         className="w-full bg-slate-900 border border-slate-700 rounded-lg pr-8 pl-3 py-1.5 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500"
                                     />
                                     {searchTerm && (
@@ -1767,7 +1767,7 @@
                                                 className="w-full text-start flex items-center justify-between gap-4 px-5 py-3.5 hover:bg-slate-800/80 transition-all group cursor-pointer">
                                             <div className="min-w-0 flex-1">
                                                 <div className="flex items-center gap-2 mb-0.5">
-                                                    {project && <span className="text-[11px] font-mono text-blue-400 bg-blue-950/80 px-1.5 py-0.5 rounded border border-blue-500/30 shrink-0">{project.code}</span>}
+                                                    {project && <span className="text-[11px] text-blue-400 bg-blue-950/80 px-1.5 py-0.5 rounded border border-blue-500/30 shrink-0">{project.name}</span>}
                                                     <p className="text-sm font-bold text-white truncate group-hover:text-blue-300 transition-colors">{t.title}</p>
                                                 </div>
                                                 <span className="text-xs text-slate-400">{org(t.org).label} · تاريخ الاستحقاق: {formatDate(t.due_date)} {t.progress > 0 ? `· إنجاز ${t.progress}%` : ''}</span>
@@ -1804,7 +1804,7 @@
         const managerName = (id) => (byId(profiles, id) || {}).name;
         const projectName = (id) => {
             const pr = byId(projects, id);
-            return pr ? (pr.hierarchical_code ? `${pr.hierarchical_code} — ${pr.name}` : `${pr.code} — ${pr.name}`) : null;
+            return pr ? pr.name : null;
         };
 
         return (
@@ -1815,7 +1815,7 @@
                         <select className={cx(inputClass, 'w-64 text-xs py-2')} value={projectFilter} onChange={e => setProjectFilter(e.target.value)}>
                             <option value="all">كل المشاريع ({safeProjects.length})</option>
                             {safeProjects.map(pr => (
-                                <option key={pr.id} value={pr.id}>{pr.hierarchical_code ? `${pr.hierarchical_code} (${pr.code})` : pr.code} — {pr.name}</option>
+                                <option key={pr.id} value={pr.id}>{pr.name}</option>
                             ))}
                         </select>
                         {mayManage && (
@@ -2050,8 +2050,8 @@
                                                     {linkedProject && (
                                                         <span className="block text-[11px] text-blue-400 mt-1">
                                                             <i className="fa-solid fa-folder-tree me-1"></i>
-                                                            <strong className="text-blue-300">{linkedProject.hierarchical_code ? `${linkedProject.hierarchical_code} (${linkedProject.code})` : linkedProject.code}</strong> — {linkedProject.name}
-                                                            {linkedPlan ? <span className="text-slate-400 ms-1.5">← {linkedPlan.hierarchical_code || linkedPlan.external_id} — {linkedPlan.title}</span> : ''}
+                                                            <strong className="text-blue-300">{linkedProject.name}</strong>
+                                                            {linkedPlan ? <span className="text-slate-400 ms-1.5">← {linkedPlan.title}</span> : ''}
                                                         </span>
                                                     )}
                                                 </td>
@@ -3129,7 +3129,7 @@
         return (
             <Modal open={open} onClose={onClose} size="lg"
                    title={`إدارة حذف وأرشفة المشروع: ${project.name}`}
-                   subtitle={project.hierarchical_code ? `${project.hierarchical_code} (${project.code})` : project.code}
+                   subtitle={project.classification ? `تصنيف: ${project.classification}` : 'إجراء إداري للمشروع'}
                    footer={
                        <React.Fragment>
                            <button type="button" onClick={onClose} disabled={busy} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-sm font-bold">إلغاء</button>
@@ -3410,7 +3410,7 @@
         const [search, setSearch] = useState('');
         const [statusFilter, setStatusFilter] = useState('all');
         const [orgFilter, setOrgFilter] = useState('all');
-        const [sortField, setSortField] = useState('hierarchical_code');
+        const [sortField, setSortField] = useState('name');
         const [sortAsc, setSortAsc] = useState(true);
         const [busyId, setBusyId] = useState(null);
 
@@ -3502,7 +3502,7 @@
                         <div className="relative flex-1 min-w-[12rem]">
                             <i className="fa-solid fa-magnifying-glass absolute top-1/2 -translate-y-1/2 start-3 text-slate-500 text-xs"></i>
                             <input type="search" value={search} onChange={e => setSearch(e.target.value)}
-                                   placeholder="بحث بالرمز أو الاسم أو الوصف..."
+                                   placeholder="بحث باسم المشروع أو الوصف..."
                                    className="w-full bg-slate-950 border border-slate-700 rounded-xl ps-9 pe-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none" />
                         </div>
                         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
@@ -3548,9 +3548,6 @@
                             <table className="w-full text-xs min-w-[68rem]">
                                 <thead>
                                     <tr className="border-b border-slate-800 text-slate-400 bg-slate-950/60 text-start">
-                                        <th className="p-3.5 cursor-pointer hover:text-white" onClick={() => toggleSort('hierarchical_code')}>
-                                            الرمز الهرمي <i className={cx('fa-solid ms-1', sortField === 'hierarchical_code' ? (sortAsc ? 'fa-arrow-up' : 'fa-arrow-down') : 'fa-sort text-slate-600')}></i>
-                                        </th>
                                         <th className="p-3.5 cursor-pointer hover:text-white" onClick={() => toggleSort('name')}>
                                             اسم المشروع <i className={cx('fa-solid ms-1', sortField === 'name' ? (sortAsc ? 'fa-arrow-up' : 'fa-arrow-down') : 'fa-sort text-slate-600')}></i>
                                         </th>
@@ -3582,9 +3579,6 @@
 
                                         return (
                                             <tr key={proj.id} className="hover:bg-slate-800/40 transition-colors">
-                                                <td className="p-3.5 font-mono text-blue-400 font-bold whitespace-nowrap">
-                                                    {proj.hierarchical_code || proj.code}
-                                                </td>
                                                 <td className="p-3.5 max-w-xs">
                                                     <strong className="block text-white truncate">{proj.name}</strong>
                                                     {proj.description && <span className="block text-slate-400 text-[11px] truncate mt-0.5">{proj.description}</span>}
@@ -4373,7 +4367,7 @@
                         const ownItems = planItems.filter(item => item.project_id === project.id);
                         const completed = ownTasks.filter(isTaskDone).length;
                         const overdue = ownTasks.filter(isOverdue).length;
-                        return <tr key={project.id}><td className="p-3"><span className="font-mono text-xs text-blue-400">{project.code}</span><strong className="block text-white">{project.name}</strong></td>
+                        return <tr key={project.id}><td className="p-3"><strong className="block text-white">{project.name}</strong></td>
                             <td className="p-3">{ownItems.length}</td><td className="p-3">{new Set(ownTasks.map(task => task.plan_item_id).filter(Boolean)).size} / {ownTasks.length}</td>
                             <td className="p-3 text-emerald-400 font-bold">{ownTasks.length ? Math.round(completed / ownTasks.length * 100) : 0}%</td>
                             <td className={cx('p-3 font-bold', overdue ? 'text-rose-400' : 'text-emerald-400')}>{overdue}</td>
@@ -4451,7 +4445,7 @@
                 </SectionHeading>
                 <select className={cx(inputClass, 'max-w-xl')} value={selected} onChange={event => setSelected(event.target.value)}>
                     <option value="all">كل المشاريع ({data.projects.length})</option>
-                    {data.projects.map(project => <option key={project.id} value={project.id}>{project.hierarchical_code ? `${project.hierarchical_code} (${project.code})` : project.code} — {project.name}</option>)}
+                    {data.projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
                 </select>
                 {filteredAlerts.length > 0 && (
                     <div className="bg-slate-900 border border-amber-500/40 rounded-2xl p-4">
@@ -4497,7 +4491,7 @@
                     }).length;
                     return <section key={project.id} className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-md">
                         <div className="p-5 border-b border-slate-800 flex flex-wrap justify-between gap-3">
-                            <div><span className="font-mono text-xs text-blue-400">{project.hierarchical_code ? `${project.hierarchical_code} (${project.code})` : project.code}</span><h3 className="font-bold text-white">{project.name}</h3>
+                            <div><h3 className="font-bold text-white text-base">{project.name}</h3>
                                 {project.description && <p className="text-xs text-slate-400 mt-1 max-w-4xl line-clamp-2">{project.description}</p>}</div>
                             <Chip className="bg-blue-950 text-blue-300 border-blue-500/40">{project.status === 'active' ? 'نشط' : 'تخطيط'}</Chip>
                         </div>
@@ -4581,7 +4575,8 @@
                     event.preventDefault();
                     onSubmit({
                         ...form,
-                        hierarchical_code: form.hierarchical_code || form.code,
+                        code: form.code || form.hierarchical_code || '',
+                        hierarchical_code: form.hierarchical_code || form.code || '',
                         manager_id: form.manager_id || null,
                         classification: form.classification || null,
                         planned_start: form.planned_start || null,
@@ -4590,36 +4585,28 @@
                     });
                 }}>
                     <div className="grid sm:grid-cols-3 gap-4">
-                        <Field label="رمز المشروع (الترميز الهرمي)" required hint="مثال: PRJ-001">
-                            <input className={cx(inputClass, 'font-mono')} dir="ltr" value={form.hierarchical_code || form.code} onChange={set('hierarchical_code')} required placeholder="PRJ-001" />
-                        </Field>
-                        <Field label="الرمز المختصر" required hint="رمز فريد للمشروع">
-                            <input className={cx(inputClass, 'font-mono')} dir="ltr" value={form.code} onChange={set('code')} required placeholder="PRJ-001" />
-                        </Field>
+                        <div className="sm:col-span-2">
+                            <Field label="اسم المشروع" required>
+                                <input className={inputClass} value={form.name} onChange={set('name')} required maxLength={250} placeholder="اسم المشروع المعتمد بالكامل" />
+                            </Field>
+                        </div>
                         <Field label="الجهة المسؤولة" required>
                             <select className={inputClass} value={form.org} onChange={set('org')}>
                                 {orgsArray.map(o => <option key={o.code} value={o.code}>{o.label}</option>)}
                             </select>
                         </Field>
                     </div>
-                    <div className="grid sm:grid-cols-3 gap-4">
-                        <div className="sm:col-span-2">
-                            <Field label="اسم المشروع" required>
-                                <input className={inputClass} value={form.name} onChange={set('name')} required maxLength={250} placeholder="اسم المشروع المعتمد بالكامل" />
-                            </Field>
-                        </div>
+                    <div className="grid sm:grid-cols-2 gap-4">
                         <Field label="تصنيف / نوع المشروع" hint="اختياري (مثال: تشغيلي، استراتيجي، حملة)">
                             <input className={inputClass} value={form.classification} onChange={set('classification')} placeholder="مثال: حملة إعلامية" />
                         </Field>
-                    </div>
-                    <div className="grid sm:grid-cols-2 gap-4">
                         <Field label="الهدف الاستراتيجي">
-                            <textarea className={cx(inputClass, 'h-20')} value={form.objective} onChange={set('objective')} placeholder="الأهداف الاستراتيجية والمخرجات المتوقعة..." />
-                        </Field>
-                        <Field label="وصف ونطاق المشروع">
-                            <textarea className={cx(inputClass, 'h-20')} value={form.description} onChange={set('description')} placeholder="وصف تفصيلي لنطاق عمل المشروع..." />
+                            <input className={inputClass} value={form.objective} onChange={set('objective')} placeholder="الأهداف الاستراتيجية والمخرجات المتوقعة..." />
                         </Field>
                     </div>
+                    <Field label="وصف ونطاق المشروع">
+                        <textarea className={cx(inputClass, 'h-20')} value={form.description} onChange={set('description')} placeholder="وصف تفصيلي لنطاق عمل المشروع..." />
+                    </Field>
                     <div className="grid sm:grid-cols-2 gap-4">
                         <Field label="الرؤية"><input className={inputClass} value={form.vision} onChange={set('vision')} placeholder="رؤية المشروع..." /></Field>
                         <Field label="الرسالة"><input className={inputClass} value={form.mission} onChange={set('mission')} placeholder="رسالة المشروع..." /></Field>
@@ -4786,8 +4773,8 @@
                             options={safeProjects.map(project => ({
                                 value: project.id,
                                 label: project.name,
-                                code: project.code,
-                                badge: project.hierarchical_code ? `${project.hierarchical_code} (${project.code})` : project.code
+                                code: '',
+                                badge: null
                             }))}
                         />
                         <SearchableSelect
@@ -5383,8 +5370,8 @@
                                     options={safeProjects.filter(item => item.status !== 'cancelled' && !item.is_system).map(item => ({
                                         value: item.id,
                                         label: item.name,
-                                        code: item.code,
-                                        badge: item.hierarchical_code ? `${item.hierarchical_code} (${item.code})` : item.code,
+                                        code: '',
+                                        badge: null,
                                         subtitle: item.description
                                     }))}
                                     emptyMessage="لا توجد مشاريع مطابقة"
@@ -5578,7 +5565,7 @@
                     {step === 3 && (
                         <div className="space-y-5">
                             <div>
-                                <h3 className="font-bold text-white mb-3">اختيار مسؤول أو أكثر من جهة المشروع ({project ? project.code : org(form.org).label})</h3>
+                                <h3 className="font-bold text-white mb-3">اختيار مسؤول أو أكثر من جهة المشروع ({project ? org(project.org || form.org).label : org(form.org).label})</h3>
                                 <div className="grid sm:grid-cols-2 gap-2 max-h-56 overflow-auto">
                                     {eligibleProfiles.map(user => (
                                         <label key={user.id} className={cx('p-3 rounded-xl border flex items-center gap-3 cursor-pointer transition-colors',
@@ -5599,7 +5586,7 @@
                                     <i className="fa-solid fa-sitemap"></i>ملخص تسلسل علاقات المهمة
                                 </h4>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-xs">
-                                    <p><span className="text-slate-500">المشروع:</span> <strong className="text-blue-300">{project ? `${project.hierarchical_code ? `${project.hierarchical_code} (${project.code})` : project.code} — ${project.name}` : (initial && initial.project_id) || '—'}</strong></p>
+                                    <p><span className="text-slate-500">المشروع:</span> <strong className="text-blue-300">{project ? project.name : (initial && initial.project_id) || '—'}</strong></p>
                                     <p><span className="text-slate-500">الخطة / المسار:</span> <strong className="text-slate-200">{baseline ? (baseline.track || '—') : (form.plan_track || '—')}</strong></p>
                                     <p><span className="text-slate-500">المنتج / المخرج:</span> <strong className="text-white">{baseline ? `${(baseline.hierarchical_code || baseline.external_id) ? (baseline.hierarchical_code || baseline.external_id) + ' — ' : ''}${baseline.title}` : '—'}</strong></p>
                                     <p><span className="text-slate-500">المرحلة / المعلم:</span> <strong className="text-slate-200">{form.phase_name || (baseline && baseline.phase) || '—'}</strong></p>
@@ -5740,7 +5727,7 @@
                             <select className={inputClass} value={form.project_id} onChange={set('project_id')} required>
                                 <option value="">— اختر المشروع —</option>
                                 {safeProjects.map(pr => (
-                                    <option key={pr.id} value={pr.id}>{pr.hierarchical_code ? `${pr.hierarchical_code} (${pr.code})` : pr.code} — {pr.name}</option>
+                                    <option key={pr.id} value={pr.id}>{pr.name}</option>
                                 ))}
                             </select>
                         </Field>

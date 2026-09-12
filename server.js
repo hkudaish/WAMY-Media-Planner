@@ -1146,14 +1146,21 @@ app.get('/api/projects/:id/dependencies', requireActive, async (req, res, next) 
 
 app.post('/api/projects', requireActive, async (req, res, next) => {
   if (!can(req.user,'Projects.Create')) return forbid(res);
-  const code = String(req.body.code || '').trim();
+  let code = String(req.body.code || '').trim();
   const name = String(req.body.name || '').trim();
-  if (!code || !name || code.length > 100 || name.length > 300) return invalid(res, 'رمز المشروع واسمه مطلوبان.');
+  if (!name || name.length > 300) return invalid(res, 'اسم المشروع مطلوب.');
   const client = await pool.connect();
   try {
     await client.query('begin');
     const countResult = await client.query('select count(*)::int as cnt from projects where is_system = false');
     const autoHCode = `PRJ-${String((countResult.rows[0].cnt || 0) + 1).padStart(3, '0')}`;
+    if (!code) {
+      code = autoHCode;
+      const existing = await client.query('select id from projects where code = $1', [code]);
+      if (existing.rows.length > 0) {
+        code = `PRJ-${Date.now().toString().slice(-6)}`;
+      }
+    }
     const hierarchicalCode = String(req.body.hierarchical_code || '').trim() || (code.startsWith('PRJ-') ? code : autoHCode);
 
     const { rows } = await client.query(
