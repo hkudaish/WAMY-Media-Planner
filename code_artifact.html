@@ -1258,7 +1258,7 @@
             <div className="relative w-full">
                 <input
                     type={visible ? 'text' : 'password'}
-                    className={cx(inputClass, 'ps-3.5 pe-11 font-mono', className)}
+                    className={cx(inputClass, '!pl-11 !pr-3.5 font-mono', className)}
                     value={value}
                     onChange={onChange}
                     placeholder={placeholder}
@@ -1276,7 +1276,7 @@
                     onClick={() => setVisible(!visible)}
                     aria-label={visible ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
                     title={visible ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
-                    className="absolute inset-y-0 end-0 px-3.5 flex items-center text-slate-400 hover:text-slate-200 transition-colors focus:outline-none cursor-pointer"
+                    className="absolute inset-y-0 left-0 px-3 flex items-center text-slate-400 hover:text-slate-200 transition-colors focus:outline-none cursor-pointer z-10"
                 >
                     <i className={cx('fa-solid text-sm', visible ? 'fa-eye-slash text-blue-400' : 'fa-eye')}></i>
                 </button>

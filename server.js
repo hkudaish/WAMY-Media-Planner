@@ -680,19 +680,23 @@ app.post('/api/auth/signup', async (req, res, next) => {
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
+    const permissionsPayload = first ? ALL_PERMISSIONS : NO_PERMISSIONS;
     const result = await client.query(
       `insert into profiles (name,email,mobile,password_hash,role,org,position,department,team,status,permissions,data_scope,request_notes)
        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        returning id,name,email,mobile,org,position,status,created_at`,
       [name, email, mobile, passwordHash, first ? 'admin' : 'user', org, position, department, team,
-       first ? 'active' : 'pending', first ? ALL_PERMISSIONS : NO_PERMISSIONS, first ? 'all_data' : 'my_data', requestNotes]
+       first ? 'active' : 'pending', JSON.stringify(permissionsPayload), first ? 'all_data' : 'my_data', requestNotes]
     );
 
-    await client.query(
-      `insert into activity_log(actor_id,actor_name,org,action,type,entity_table,entity_id,details,request_id,ip_address)
-       values($1,$2,$3,$4,'AUTH','profiles',$1,$5,$6,$7)`,
-      [result.rows[0].id, result.rows[0].name, result.rows[0].org, 'طلب تسجيل حساب جديد',
-       { first_admin: first, initial_status: result.rows[0].status, email, mobile }, req.requestId, req.ip]
+    await writeAudit(
+      client,
+      { user: result.rows[0], requestId: req.requestId, ip: req.ip },
+      'طلب تسجيل حساب جديد',
+      'AUTH',
+      'profiles',
+      result.rows[0].id,
+      { first_admin: first, initial_status: result.rows[0].status, email, mobile }
     );
     await client.query('commit');
     res.status(201).json({
