@@ -1758,8 +1758,13 @@
                                                 {ORG_LIST.map(o => <option key={o.code} value={o.code}>{o.label}</option>)}
                                             </select>
                                         </Field>
-                                        <Field label="المسمى الوظيفي" hint="اختياري">
-                                            <input className={inputClass} value={form.position} onChange={set('position')} placeholder="مثال: مدير مشاريع" />
+                                        <Field label="المنصب" hint="اختر نوع المستخدم">
+                                            <select className={inputClass} value={form.position} onChange={set('position')}>
+                                                <option value="">— اختر المنصب —</option>
+                                                <option value="مدير إدارة (Manager)">مدير إدارة "Manager"</option>
+                                                <option value="رئيس قسم (TeamHead)">رئيس قسم "TeamHead"</option>
+                                                <option value="موظف (Team Member)">موظف "Team Member"</option>
+                                            </select>
                                         </Field>
                                     </div>
                                     <Field label="رقم الجوال" required>
