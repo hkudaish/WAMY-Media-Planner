@@ -47,7 +47,8 @@ const PERMISSION_KEYS = [
   'Calendar.Create','Calendar.Edit','Calendar.Delete','Calendar.ManageSchedule',
   'Settings.General','Settings.Users','Settings.Roles','Settings.Permissions','Settings.Departments','Settings.Organizations','Settings.Backup','Settings.Security','Settings.Integrations',
   'Organizations.View','Organizations.Create','Organizations.Edit','Organizations.Activate','Organizations.Deactivate','Organizations.Delete',
-  'Backup.View','Backup.Create','Backup.Restore','Backup.Download','Backup.Delete','System.Reset'
+  'Backup.View','Backup.Create','Backup.Restore','Backup.Download','Backup.Delete','System.Reset',
+  'SECURITY_PUBLIC_REGISTRATION_VIEW','SECURITY_PUBLIC_REGISTRATION_MANAGE','USER_REGISTRATION_REVIEW','USER_REGISTRATION_APPROVE','USER_REGISTRATION_REJECT','USER_PERMISSION_ASSIGN'
 ];
 const ALL_PERMISSIONS = Object.fromEntries(PERMISSION_KEYS.map(key => [key,true]));
 const NO_PERMISSIONS = Object.fromEntries(PERMISSION_KEYS.map(key => [key,false]));
@@ -216,7 +217,10 @@ const LEGACY_PERMISSION_MAP = {
   'Organizations.Delete':'canManageSettings','Organizations.Activate':'canManageSettings','Organizations.Deactivate':'canManageSettings',
   'AuditLog.View':'Audit.View',
   'Backup.View':'Settings.Backup','Backup.Create':'Settings.Backup','Backup.Restore':'Settings.Backup','Backup.Download':'Settings.Backup','Backup.Delete':'Settings.Backup',
-  'Projects.Activate':'Projects.Edit','Projects.Deactivate':'Projects.Edit'
+  'Projects.Activate':'Projects.Edit','Projects.Deactivate':'Projects.Edit',
+  'SECURITY_PUBLIC_REGISTRATION_VIEW':'Settings.Security','SECURITY_PUBLIC_REGISTRATION_MANAGE':'Settings.Security',
+  'USER_REGISTRATION_REVIEW':'Settings.Users','USER_REGISTRATION_APPROVE':'Settings.Users','USER_REGISTRATION_REJECT':'Settings.Users',
+  'USER_PERMISSION_ASSIGN':'Settings.Permissions'
 };
 function can(user, permission) {
   if (isAdmin(user)) return true;
@@ -230,7 +234,7 @@ function forbid(res) { return res.status(403).json({ code: 'FORBIDDEN', message:
 
 const ENUMS = {
   role: new Set(['admin','supervisor','project_manager','department_manager','team_lead','user','reviewer','approver','read_only']),
-  userStatus: new Set(['pending', 'active', 'disabled']),
+  userStatus: new Set(['pending', 'active', 'rejected', 'suspended', 'disabled', 'needs_info']),
   org: new Set(['wamy', 'imaan']),
   taskStatus: new Set(['not_started', 'in_progress', 'on_hold', 'awaiting_approval', 'needs_revision', 'completed_approved', 'cancelled']),
   procedureStatus: new Set(['not_started', 'ready', 'in_progress', 'on_hold', 'waiting_review', 'needs_revision', 'completed', 'delayed', 'cancelled']),
@@ -276,7 +280,8 @@ function validatePatch(name, body, creating = false) {
     hierarchical_code: 100, legacy_code: 100, plan_track: 200, classification: 100,
     avatar_url: 2000, drive_url: 2000, drive_view_link: 2000, drive_icon_link: 2000,
     mime_type: 300, drive_file_id: 500, drive_parent_id: 500,
-    drive_folder_id: 500, drive_proposals_folder_id: 500, drive_approved_folder_id: 500
+    drive_folder_id: 500, drive_proposals_folder_id: 500, drive_approved_folder_id: 500,
+    mobile: 50, request_notes: 5000, rejection_reason: 2000, request_info_note: 2000
   };
   for (const [key, limit] of Object.entries(textLimits)) {
     if (body[key] != null && (typeof body[key] !== 'string' || body[key].length > limit)) return `${key} غير صالح أو طويل جدًا.`;
@@ -537,7 +542,7 @@ async function validatePlanRows(inputRows) {
 }
 
 const FIELDS = {
-  profiles: ['name','email','role','org','position','department','team','data_scope','status','permissions','avatar_url'],
+  profiles: ['name','email','mobile','role','org','position','department','team','data_scope','status','permissions','avatar_url','request_notes','rejection_reason','request_info_note','approved_by','approved_at','reviewed_by','reviewed_at'],
   projects: ['code','hierarchical_code','name','description','objective','vision','mission','org','manager_id','planned_start','planned_end','status','budget','currency','source_notes','classification'],
   products: ['code','hierarchical_code','legacy_code','project_id','plan_track','name','content','target_qty','org','manager_id','start_date','due_date','status','manual_progress','active_duration_days','recurrence','allow_multiple_tasks','is_active','drive_folder_id','drive_proposals_folder_id','drive_approved_folder_id'],
   tasks: ['product_id','project_id','plan_item_id','title','description','goal','required_outputs','org','assignee_id','priority','status','progress','planned_start','due_date','scheduled_start_at','scheduled_due_at','actual_completion','active_duration','phase_name','notes','import_key','created_by','task_mode','actual_start_at','started_by_id','completion_submitted_at','completion_submitted_by_id','completion_approved_at','completion_approved_by_id','hold_reason','hold_at','hold_by_id','expected_resume_at','original_due_at','extension_count'],
@@ -545,7 +550,7 @@ const FIELDS = {
   execution_sub_procedures: ['procedure_id','task_id','project_id','plan_item_id','assigned_user_id','order_index','title','description','status','progress','planned_start','expected_duration','duration_unit','due_at','actual_start','actual_completion','actual_duration','priority','notes','attachments','related_links','created_by'],
   files: ['name','product_id','folder','size_label','file_type','uploader_id','org','drive_url','version','status','approved_by','approved_at','drive_file_id','drive_view_link','drive_icon_link','mime_type','size_bytes','drive_parent_id'],
   organizations: ['code','name','name_en','description','is_active'],
-  settings: ['drive_client_id','drive_picker_api_key','drive_root_folder_id','drive_root_folder_name','updated_by']
+  settings: ['drive_client_id','drive_picker_api_key','drive_root_folder_id','drive_root_folder_name','allow_public_signup','public_registration_enabled','updated_by']
 };
 
 async function getOrCreateAdhocSystemProject(client, orgCode, actorId) {
@@ -596,46 +601,110 @@ app.get('/api/auth/session', (req, res) => {
   res.json(req.user ? sessionPayload(req.user) : { session: null });
 });
 
+app.get('/api/auth/config', async (_req, res, next) => {
+  try {
+    const settingsRow = (await pool.query('select allow_public_signup, public_registration_enabled from app_settings where id=1')).rows[0];
+    const envSignup = process.env.ALLOW_PUBLIC_SIGNUP !== 'false';
+    const allowPublicSignup = settingsRow
+      ? (settingsRow.allow_public_signup !== false && settingsRow.public_registration_enabled !== false)
+      : envSignup;
+    res.json({
+      allow_public_signup: allowPublicSignup,
+      public_registration_enabled: allowPublicSignup
+    });
+  } catch (error) { next(error); }
+});
+
 app.post('/api/auth/signup', async (req, res, next) => {
   const email = String(req.body.email || '').trim().toLowerCase();
   const password = String(req.body.password || '');
   const name = String(req.body.name || '').trim();
+  const mobile = String(req.body.mobile || '').trim() || null;
   const org = req.body.org === 'imaan' ? 'imaan' : 'wamy';
   const position = String(req.body.position || '').trim() || null;
-  if (!/^\S+@\S+\.\S+$/.test(email) || !name || email.length > 320 || name.length > 200) return res.status(400).json({ message: 'الاسم والبريد الإلكتروني مطلوبان.' });
-  if (password.length < 12 || password.length > 200) return res.status(400).json({ message: 'كلمة المرور يجب أن تكون بين 12 و200 حرف.' });
+  const department = String(req.body.department || '').trim() || null;
+  const team = String(req.body.team || '').trim() || null;
+  const requestNotes = String(req.body.request_notes || req.body.notes || '').trim() || null;
+
+  if (!/^\S+@\S+\.\S+$/.test(email) || !name || email.length > 320 || name.length > 200) {
+    return res.status(400).json({ message: 'الاسم والبريد الإلكتروني مطلوبان.' });
+  }
+  if (mobile && mobile.length > 50) {
+    return res.status(400).json({ message: 'رقم الجوال غير صالح.' });
+  }
+  if (password.length < 12 || password.length > 200) {
+    return res.status(400).json({ message: 'كلمة المرور يجب أن تكون بين 12 و200 حرف.' });
+  }
+
   const client = await pool.connect();
   try {
     await client.query('begin');
     await client.query(`select pg_advisory_xact_lock(20260904)`);
     const first = Number((await client.query('select count(*)::int as count from profiles')).rows[0].count) === 0;
+
     if (IS_PRODUCTION && first && (!process.env.BOOTSTRAP_ADMIN_TOKEN
       || req.headers['x-bootstrap-token'] !== process.env.BOOTSTRAP_ADMIN_TOKEN)) {
       await client.query('rollback');
       return res.status(403).json({ code: 'BOOTSTRAP_REQUIRED', message: 'يلزم رمز التهيئة لإنشاء مدير النظام الأول.' });
     }
-    if (process.env.ALLOW_PUBLIC_SIGNUP === 'false') {
+
+    const settingsRow = (await client.query('select allow_public_signup, public_registration_enabled from app_settings where id=1')).rows[0];
+    const allowSignup = settingsRow
+      ? (settingsRow.allow_public_signup !== false && settingsRow.public_registration_enabled !== false)
+      : process.env.ALLOW_PUBLIC_SIGNUP !== 'false';
+
+    if (!allowSignup && !first) {
       await client.query('rollback');
-      return res.status(403).json({ code: 'SIGNUP_DISABLED', message: 'إنشاء الحسابات العامة معطل حالياً من قبل الإدارة.' });
+      return res.status(403).json({
+        code: 'SIGNUP_DISABLED',
+        message: 'إنشاء الحسابات العامة معطّل حاليًا من قبل الإدارة. يرجى التواصل مع مسؤول النظام إذا كنت بحاجة إلى حساب.'
+      });
     }
+
+    // Duplicate account validations
+    const existingEmail = (await client.query('select id, email, status from profiles where lower(email)=$1 and deleted_at is null', [email])).rows[0];
+    if (existingEmail) {
+      await client.query('rollback');
+      if (existingEmail.status === 'pending') {
+        return res.status(409).json({ code: 'REGISTRATION_PENDING', message: 'يوجد طلب تسجيل سابق بهذا البريد الإلكتروني وهو قيد المراجعة.' });
+      }
+      return res.status(409).json({ code: 'EMAIL_EXISTS', message: 'هذا البريد الإلكتروني مسجل مسبقًا في النظام.' });
+    }
+
+    if (mobile) {
+      const existingMobile = (await client.query('select id, status from profiles where mobile=$1 and deleted_at is null', [mobile])).rows[0];
+      if (existingMobile) {
+        await client.query('rollback');
+        return res.status(409).json({ code: 'MOBILE_EXISTS', message: 'رقم الجوال مسجل مسبقًا في النظام.' });
+      }
+    }
+
     const passwordHash = await bcrypt.hash(password, 12);
     const result = await client.query(
-      `insert into profiles (name,email,password_hash,role,org,position,status,permissions,data_scope)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id,name,email,org,status`,
-      [name, email, passwordHash, first ? 'admin' : 'user', org, position,
-       first ? 'active' : 'pending', first ? ALL_PERMISSIONS : NO_PERMISSIONS, first ? 'all_data' : 'my_data']
+      `insert into profiles (name,email,mobile,password_hash,role,org,position,department,team,status,permissions,data_scope,request_notes)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+       returning id,name,email,mobile,org,position,status,created_at`,
+      [name, email, mobile, passwordHash, first ? 'admin' : 'user', org, position, department, team,
+       first ? 'active' : 'pending', first ? ALL_PERMISSIONS : NO_PERMISSIONS, first ? 'all_data' : 'my_data', requestNotes]
     );
+
     await client.query(
       `insert into activity_log(actor_id,actor_name,org,action,type,entity_table,entity_id,details,request_id,ip_address)
        values($1,$2,$3,$4,'AUTH','profiles',$1,$5,$6,$7)`,
-      [result.rows[0].id, result.rows[0].name, result.rows[0].org, 'إنشاء حساب',
-       { first_admin: first, initial_status: result.rows[0].status }, req.requestId, req.ip]
+      [result.rows[0].id, result.rows[0].name, result.rows[0].org, 'طلب تسجيل حساب جديد',
+       { first_admin: first, initial_status: result.rows[0].status, email, mobile }, req.requestId, req.ip]
     );
     await client.query('commit');
-    res.status(201).json({ user: result.rows[0], firstAdmin: first });
+    res.status(201).json({
+      user: result.rows[0],
+      firstAdmin: first,
+      message: first
+        ? 'تم إنشاء أول حساب كمدير نظام نشط. يمكنك تسجيل الدخول الآن.'
+        : 'تم استلام طلب إنشاء الحساب بنجاح، وسيتم تفعيله بعد مراجعته واعتماده من مسؤول النظام.'
+    });
   } catch (error) {
     await client.query('rollback');
-    if (error.code === '23505') return res.status(409).json({ code: error.code, message: 'User already registered' });
+    if (error.code === '23505') return res.status(409).json({ code: error.code, message: 'هذا البريد أو البيانات مسجلة مسبقًا.' });
     next(error);
   } finally { client.release(); }
 });
@@ -659,7 +728,22 @@ app.post('/api/auth/login', async (req, res, next) => {
       await recordLogin(email, req.ip, false, user.id);
       console.warn(JSON.stringify({ level: 'warn', event: 'login_pending', request_id: req.requestId, ip: req.ip,
         user_id: user.id }));
-      return res.status(403).json({ code: 'ACCOUNT_PENDING', message: 'تم إنشاء حسابك بنجاح وهو قيد المراجعة والاعتماد من قبل مدير النظام. يرجى الانتظار لحين منحك حق الوصول.' });
+      return res.status(403).json({ code: 'ACCOUNT_PENDING', message: 'حسابك مسجل بنجاح ولكنه لا يزال بانتظار اعتماد مسؤول النظام.' });
+    }
+    if (user.status === 'rejected') {
+      await recordLogin(email, req.ip, false, user.id);
+      console.warn(JSON.stringify({ level: 'warn', event: 'login_rejected', request_id: req.requestId, ip: req.ip,
+        user_id: user.id }));
+      return res.status(403).json({ code: 'ACCOUNT_REJECTED', message: 'تعذر تفعيل الحساب. يرجى التواصل مع مسؤول النظام للمزيد من المعلومات.' });
+    }
+    if (user.status === 'needs_info') {
+      await recordLogin(email, req.ip, false, user.id);
+      console.warn(JSON.stringify({ level: 'warn', event: 'login_needs_info', request_id: req.requestId, ip: req.ip,
+        user_id: user.id }));
+      const msg = user.request_info_note
+        ? `الحساب بانتظار استكمال البيانات: ${user.request_info_note}`
+        : 'الحساب بانتظار استكمال البيانات المطلوبة. يرجى التواصل مع مسؤول النظام.';
+      return res.status(403).json({ code: 'ACCOUNT_NEEDS_INFO', message: msg, note: user.request_info_note });
     }
     if (user.status !== 'active') {
       await recordLogin(email, req.ip, false, user.id);
@@ -721,14 +805,22 @@ app.post('/api/auth/change-password', requireSession, requireActive, async (req,
 
 app.get('/api/profiles/me', requireSession, (req, res) => res.json(publicProfile(req.user)));
 app.get('/api/profiles', requireActive, async (req, res, next) => {
-  if (!can(req.user,'Settings.Users')) return forbid(res);
+  if (!canAny(req.user, 'Settings.Users', 'USER_REGISTRATION_REVIEW', 'SECURITY_PUBLIC_REGISTRATION_VIEW') && !isAdmin(req.user)) return forbid(res);
   try {
     const privileged = isAdmin(req.user) || hasAllData(req.user);
     const { rows } = await pool.query(
-      `select p.id,p.name,p.email,p.role,p.org,p.position,p.department,p.team,p.data_scope,p.status,p.permissions,p.avatar_url,p.created_at,p.updated_at,
+      `select p.id, p.name, p.email, p.mobile, p.role, p.org, p.position, p.department, p.team,
+              p.data_scope, p.status, p.permissions, p.avatar_url, p.request_notes,
+              p.rejection_reason, p.request_info_note, p.approved_by, p.approved_at,
+              p.reviewed_by, p.reviewed_at, p.created_at, p.updated_at,
+              approver.name as approver_name, reviewer.name as reviewer_name,
               (select max(i.expires_at) from user_invitations i where i.profile_id=p.id
                 and i.accepted_at is null and i.revoked_at is null and i.expires_at>now()) as invitation_expires_at
-       from profiles p where p.deleted_at is null and ($1::boolean or p.org=$2) order by p.name`,
+       from profiles p
+       left join profiles approver on approver.id = p.approved_by
+       left join profiles reviewer on reviewer.id = p.reviewed_by
+       where p.deleted_at is null and ($1::boolean or p.org=$2)
+       order by p.created_at desc, p.name`,
       [privileged, req.user.org]
     );
     res.json(rows);
@@ -946,7 +1038,7 @@ app.post('/api/profiles/:id/reset-password', requireActive, async (req, res, nex
 });
 
 app.post('/api/profiles/:id/approve', requireActive, async (req, res, next) => {
-  if (!isAdmin(req.user) && !can(req.user, 'Settings.Users')) return forbid(res);
+  if (!isAdmin(req.user) && !canAny(req.user, 'USER_REGISTRATION_APPROVE', 'Settings.Users')) return forbid(res);
   const targetId = req.params.id;
   if (!/^[0-9a-f-]{36}$/i.test(targetId)) return invalid(res, 'معرف المستخدم غير صالح.');
   const client = await pool.connect();
@@ -969,24 +1061,102 @@ app.post('/api/profiles/:id/approve', requireActive, async (req, res, next) => {
       'Reports.View': true
     };
     const newRole = req.body.role || target.role || 'user';
+    const newOrg = req.body.org || target.org || 'wamy';
     const newPosition = req.body.position !== undefined ? (String(req.body.position || '').trim() || null) : target.position;
     const newDepartment = req.body.department !== undefined ? (String(req.body.department || '').trim() || null) : target.department;
     const newTeam = req.body.team !== undefined ? (String(req.body.team || '').trim() || null) : target.team;
     const newDataScope = req.body.data_scope || target.data_scope || 'my_data';
     const permissions = newRole === 'admin' ? ALL_PERMISSIONS : defaultPerms;
     const { rows } = await client.query(
-      `update profiles set status='active', role=$1, position=$2, department=$3, team=$4, permissions=$5, data_scope=$6, updated_at=now() where id=$7 returning *`,
-      [newRole, newPosition, newDepartment, newTeam, JSON.stringify(permissions), newDataScope, targetId]
+      `update profiles
+          set status='active', role=$1, org=$2, position=$3, department=$4, team=$5,
+              permissions=$6, data_scope=$7, approved_by=$8, approved_at=now(),
+              reviewed_by=$8, reviewed_at=now(), updated_at=now()
+        where id=$9 returning *`,
+      [newRole, newOrg, newPosition, newDepartment, newTeam, JSON.stringify(permissions), newDataScope, req.user.id, targetId]
     );
-    await writeAudit(client, req, `اعتماد وتفعيل حساب المستخدم: ${target.name}`, 'UPDATE', 'profiles', targetId, {
+    await writeAudit(client, req, `اعتماد وتفعيل حساب المستخدم: ${target.name}`, 'AUTH', 'profiles', targetId, {
       previous_status: target.status,
       new_status: 'active',
       role: newRole,
+      org: newOrg,
       position: newPosition,
-      data_scope: newDataScope
+      department: newDepartment,
+      team: newTeam,
+      data_scope: newDataScope,
+      approved_by: req.user.id
     });
     await client.query('commit');
-    res.json({ success: true, user: publicProfile(rows[0]) });
+    res.json({ success: true, message: 'تم اعتماد الحساب وتفعيله بنجاح.', user: publicProfile(rows[0]) });
+  } catch (error) {
+    await client.query('rollback');
+    next(error);
+  } finally { client.release(); }
+});
+
+app.post('/api/profiles/:id/reject', requireActive, async (req, res, next) => {
+  if (!isAdmin(req.user) && !canAny(req.user, 'USER_REGISTRATION_REJECT', 'Settings.Users')) return forbid(res);
+  const targetId = req.params.id;
+  if (!/^[0-9a-f-]{36}$/i.test(targetId)) return invalid(res, 'معرف المستخدم غير صالح.');
+  const reason = String(req.body.reason || req.body.rejection_reason || '').trim();
+  if (!reason) return invalid(res, 'سبب رفض الطلب مطلوب.');
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    const target = (await client.query('select * from profiles where id=$1 and deleted_at is null for update', [targetId])).rows[0];
+    if (!target) {
+      await client.query('rollback');
+      return res.status(404).json({ message: 'المستخدم غير موجود.' });
+    }
+    const { rows } = await client.query(
+      `update profiles
+          set status='rejected', rejection_reason=$1, reviewed_by=$2, reviewed_at=now(), updated_at=now()
+        where id=$3 returning *`,
+      [reason, req.user.id, targetId]
+    );
+    await client.query('delete from sessions where user_id=$1', [targetId]);
+    await writeAudit(client, req, `رفض طلب تسجيل المستخدم: ${target.name}`, 'AUTH', 'profiles', targetId, {
+      previous_status: target.status,
+      new_status: 'rejected',
+      reason,
+      reviewed_by: req.user.id
+    });
+    await client.query('commit');
+    res.json({ success: true, message: 'تم رفض طلب التسجيل.', user: publicProfile(rows[0]) });
+  } catch (error) {
+    await client.query('rollback');
+    next(error);
+  } finally { client.release(); }
+});
+
+app.post('/api/profiles/:id/request-info', requireActive, async (req, res, next) => {
+  if (!isAdmin(req.user) && !canAny(req.user, 'USER_REGISTRATION_REVIEW', 'Settings.Users')) return forbid(res);
+  const targetId = req.params.id;
+  if (!/^[0-9a-f-]{36}$/i.test(targetId)) return invalid(res, 'معرف المستخدم غير صالح.');
+  const note = String(req.body.note || req.body.request_info_note || '').trim();
+  if (!note) return invalid(res, 'البيانات المطلوبة للاستكمال إلزامية.');
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    const target = (await client.query('select * from profiles where id=$1 and deleted_at is null for update', [targetId])).rows[0];
+    if (!target) {
+      await client.query('rollback');
+      return res.status(404).json({ message: 'المستخدم غير موجود.' });
+    }
+    const { rows } = await client.query(
+      `update profiles
+          set status='needs_info', request_info_note=$1, reviewed_by=$2, reviewed_at=now(), updated_at=now()
+        where id=$3 returning *`,
+      [note, req.user.id, targetId]
+    );
+    await writeAudit(client, req, `طلب استكمال بيانات التسجيل للمستخدم: ${target.name}`, 'AUTH', 'profiles', targetId, {
+      previous_status: target.status,
+      new_status: 'needs_info',
+      note,
+      reviewed_by: req.user.id
+    });
+    await client.query('commit');
+    res.json({ success: true, message: 'تم إرسال طلب استكمال البيانات.', user: publicProfile(rows[0]) });
   } catch (error) {
     await client.query('rollback');
     next(error);
@@ -5170,9 +5340,14 @@ app.get('/api/settings', requireActive, async (_req, res, next) => {
   try { res.json((await pool.query('select * from app_settings where id=1')).rows[0] || null); } catch (error) { next(error); }
 });
 app.patch('/api/settings', requireActive, async (req, res, next) => {
-  if (!can(req.user,'Settings.Integrations')) return forbid(res);
+  if (!canAny(req.user, 'Settings.Integrations', 'Settings.Security', 'SECURITY_PUBLIC_REGISTRATION_MANAGE', 'Settings.Users') && !isAdmin(req.user)) return forbid(res);
   const patch = { ...req.body, updated_by: req.user.id };
   delete patch.updated_at;
+  if (patch.allow_public_signup !== undefined) {
+    patch.public_registration_enabled = patch.allow_public_signup;
+  } else if (patch.public_registration_enabled !== undefined) {
+    patch.allow_public_signup = patch.public_registration_enabled;
+  }
   const query = updateStatement('app_settings', 1, patch, FIELDS.settings);
   if (!query) return res.status(400).json({ message: 'لا توجد حقول صالحة للتحديث.' });
   const client = await pool.connect();
@@ -5185,7 +5360,7 @@ app.patch('/api/settings', requireActive, async (req, res, next) => {
     }
     const rows = (await client.query(query)).rows;
     const changedFields = Object.keys(cleanObject(patch, FIELDS.settings)).filter(key => key !== 'updated_by');
-    await writeAudit(client, req, 'تحديث إعدادات Google Drive', 'SETTINGS', 'app_settings', 1,
+    await writeAudit(client, req, 'تحديث إعدادات النظام', 'SETTINGS', 'app_settings', 1,
       { changed_fields: changedFields,
         before: Object.fromEntries(changedFields.map(key => [key, before && before[key]])),
         after: Object.fromEntries(changedFields.map(key => [key, rows[0] && rows[0][key]])) });

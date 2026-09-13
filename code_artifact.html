@@ -266,9 +266,12 @@
     };
 
     const USER_STATUS = {
-        pending:  { code: 'pending',  label: 'بانتظار التفعيل', chip: 'bg-amber-950 text-amber-300 border-amber-500/40' },
-        active:   { code: 'active',   label: 'نشط',             chip: 'bg-emerald-950 text-emerald-300 border-emerald-500/40' },
-        disabled: { code: 'disabled', label: 'معطل',            chip: 'bg-rose-950 text-rose-300 border-rose-500/40' }
+        pending:    { code: 'pending',    label: 'بانتظار الاعتماد',       chip: 'bg-amber-950 text-amber-300 border-amber-500/40' },
+        active:     { code: 'active',     label: 'نشط',                   chip: 'bg-emerald-950 text-emerald-300 border-emerald-500/40' },
+        rejected:   { code: 'rejected',   label: 'مرفوض',                 chip: 'bg-rose-950 text-rose-300 border-rose-500/40' },
+        suspended:  { code: 'suspended',  label: 'موقوف',                 chip: 'bg-orange-950 text-orange-300 border-orange-500/40' },
+        disabled:   { code: 'disabled',   label: 'معطّل',                 chip: 'bg-slate-900 text-slate-400 border-slate-700' },
+        needs_info: { code: 'needs_info', label: 'بانتظار استكمال البيانات', chip: 'bg-purple-950 text-purple-300 border-purple-500/40' }
     };
 
     const TASK_STATUS = {
@@ -543,13 +546,16 @@
         return {
             auth: {
                 ...auth,
+                config: () => request('/auth/config'),
                 changePassword: (payload) => request('/auth/change-password', { method: 'POST', body: JSON.stringify(payload) })
             },
             profiles: {
                 ...resource('profiles'), mine: () => request('/profiles/me'),
                 invite: (values) => request('/profiles/invite', { method: 'POST', body: JSON.stringify(values) }),
                 resetPassword: (id, payload) => request('/profiles/' + encodeURIComponent(id) + '/reset-password', { method: 'POST', body: JSON.stringify(payload) }),
-                approve: (id, payload) => request('/profiles/' + encodeURIComponent(id) + '/approve', { method: 'POST', body: JSON.stringify(payload || {}) })
+                approve: (id, payload) => request('/profiles/' + encodeURIComponent(id) + '/approve', { method: 'POST', body: JSON.stringify(payload || {}) }),
+                reject: (id, payload) => request('/profiles/' + encodeURIComponent(id) + '/reject', { method: 'POST', body: JSON.stringify(payload || {}) }),
+                requestInfo: (id, payload) => request('/profiles/' + encodeURIComponent(id) + '/request-info', { method: 'POST', body: JSON.stringify(payload || {}) })
             },
             organizations: {
                 ...resource('organizations'),
@@ -1605,12 +1611,25 @@
        --------------------------------------------------------------- */
     function AuthScreen({ api }) {
         const [mode, setMode] = useState('login'); // login | signup
-        const [form, setForm] = useState({ email: '', password: '', name: '', org: 'wamy', position: '' });
+        const [form, setForm] = useState({ email: '', password: '', confirmPassword: '', name: '', mobile: '', org: 'wamy', position: '', request_notes: '' });
+        const [authConfig, setAuthConfig] = useState({ allow_public_signup: true, public_registration_enabled: true });
         const [error, setError] = useState('');
         const [notice, setNotice] = useState('');
         const [busy, setBusy] = useState(false);
 
+        useEffect(() => {
+            let active = true;
+            if (api && api.auth && api.auth.config) {
+                api.auth.config().then(cfg => {
+                    if (active && cfg) setAuthConfig(cfg);
+                }).catch(() => {});
+            }
+            return () => { active = false; };
+        }, [api]);
+
         const set = (key) => (event) => setForm(prev => ({ ...prev, [key]: event.target.value }));
+
+        const isSignupAllowed = authConfig.allow_public_signup !== false && authConfig.public_registration_enabled !== false;
 
         const submit = async (event) => {
             event.preventDefault();
@@ -1622,17 +1641,31 @@
                     });
                     if (err) throw err;
                 } else if (mode === 'signup') {
+                    if (!isSignupAllowed) {
+                        throw new Error('إنشاء الحسابات العامة معطّل حاليًا من قبل الإدارة. يرجى التواصل مع مسؤول النظام إذا كنت بحاجة إلى حساب.');
+                    }
+                    if (!form.name.trim()) throw new Error('الاسم مطلوب.');
+                    if (!form.email.trim()) throw new Error('البريد الإلكتروني مطلوب.');
+                    if (!form.mobile.trim()) throw new Error('رقم الجوال مطلوب.');
                     if (form.password.length < 12) throw new Error('كلمة المرور يجب ألا تقل عن 12 حرفًا.');
-                    if (!form.name.trim())         throw new Error('الاسم مطلوب.');
+                    if (form.password !== form.confirmPassword) throw new Error('كلمتا المرور غير متطابقتين.');
                     const { data, error: err } = await api.auth.signUp({
                         email: form.email.trim().toLowerCase(),
                         password: form.password,
-                        options: { data: { name: form.name.trim(), org: form.org, position: form.position.trim() } }
+                        options: {
+                            data: {
+                                name: form.name.trim(),
+                                mobile: form.mobile.trim(),
+                                org: form.org,
+                                position: form.position.trim(),
+                                request_notes: form.request_notes.trim()
+                            }
+                        }
                     });
                     if (err) throw err;
                     setNotice(data && data.firstAdmin
                         ? 'تم إنشاء أول حساب كمدير نظام نشط. يمكنك تسجيل الدخول الآن.'
-                        : 'تم إنشاء حسابك بنجاح وهو قيد المراجعة والاعتماد من قبل مدير النظام. يرجى الانتظار لحين منحك حق الوصول.');
+                        : 'تم استلام طلب إنشاء الحساب بنجاح، وسيتم تفعيله بعد مراجعته واعتماده من مسؤول النظام.');
                     setMode('login');
                 }
             } catch (err) {
@@ -1644,7 +1677,7 @@
 
         const tabs = [
             { key: 'login',  label: 'تسجيل الدخول' },
-            { key: 'signup', label: 'إنشاء حساب' }
+            { key: 'signup', label: 'إنشاء حساب جديد' }
         ];
 
         return (
@@ -1666,41 +1699,75 @@
                         ))}
                     </div>
 
-                    {error  && <p role="alert" className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-300 text-sm">{error}</p>}
-                    {notice && <p role="status" className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-300 text-sm">{notice}</p>}
+                    {error  && <p role="alert" className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-300 text-sm leading-relaxed">{error}</p>}
+                    {notice && <p role="status" className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-300 text-sm leading-relaxed">{notice}</p>}
 
-                    <form onSubmit={submit} className="space-y-4">
-                        {mode === 'signup' && (
-                            <React.Fragment>
-                                <Field label="الاسم الكامل" required>
-                                    <input className={inputClass} value={form.name} onChange={set('name')} required autoComplete="name" />
-                                </Field>
-                                <Field label="الجهة" required>
-                                    <select className={inputClass} value={form.org} onChange={set('org')}>
-                                        {ORG_LIST.map(o => <option key={o.code} value={o.code}>{o.label}</option>)}
-                                    </select>
-                                </Field>
-                            </React.Fragment>
-                        )}
+                    {mode === 'signup' && !isSignupAllowed ? (
+                        <div className="p-4 bg-amber-950/40 border border-amber-500/30 rounded-2xl space-y-3 text-center">
+                            <i className="fa-solid fa-user-lock text-3xl text-amber-400"></i>
+                            <h3 className="font-bold text-white text-sm">التسجيل العام معطل</h3>
+                            <p className="text-xs text-amber-200/80 leading-relaxed">
+                                إنشاء الحسابات العامة معطّل حاليًا من قبل الإدارة. يرجى التواصل مع مسؤول النظام إذا كنت بحاجة إلى حساب.
+                            </p>
+                            <button type="button" onClick={() => setMode('login')} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold transition-colors">
+                                العودة لتسجيل الدخول
+                            </button>
+                        </div>
+                    ) : (
+                        <form onSubmit={submit} className="space-y-4">
+                            {mode === 'signup' && (
+                                <React.Fragment>
+                                    <Field label="الاسم الكامل" required>
+                                        <input className={inputClass} value={form.name} onChange={set('name')} required autoComplete="name" placeholder="الاسم الأول واسم العائلة" />
+                                    </Field>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <Field label="الجهة" required>
+                                            <select className={inputClass} value={form.org} onChange={set('org')}>
+                                                {ORG_LIST.map(o => <option key={o.code} value={o.code}>{o.label}</option>)}
+                                            </select>
+                                        </Field>
+                                        <Field label="المسمى الوظيفي" hint="اختياري">
+                                            <input className={inputClass} value={form.position} onChange={set('position')} placeholder="مثال: مدير مشاريع" />
+                                        </Field>
+                                    </div>
+                                    <Field label="رقم الجوال" required>
+                                        <input type="tel" dir="ltr" className={cx(inputClass, 'font-mono')} value={form.mobile}
+                                               onChange={set('mobile')} required autoComplete="tel" placeholder="05xxxxxxxx" />
+                                    </Field>
+                                </React.Fragment>
+                            )}
 
-                        <Field label="البريد الإلكتروني" required>
-                            <input type="email" dir="ltr" className={cx(inputClass, 'font-mono')} value={form.email}
-                                   onChange={set('email')} required autoComplete="email" placeholder="name@wamy.org" />
-                        </Field>
+                            <Field label="البريد الإلكتروني" required>
+                                <input type="email" dir="ltr" className={cx(inputClass, 'font-mono')} value={form.email}
+                                       onChange={set('email')} required autoComplete="email" placeholder="name@wamy.org" />
+                            </Field>
 
-                        <Field label="كلمة المرور" required
-                               hint={mode === 'signup' ? 'اثنا عشر حرفًا على الأقل. تُخزَّن كتجزئة آمنة داخل PostgreSQL.' : null}>
-                            <input type="password" className={inputClass} value={form.password} onChange={set('password')}
-                                   required minLength={mode === 'signup' ? 12 : 1}
-                                   autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} />
-                        </Field>
+                            <Field label="كلمة المرور" required
+                                   hint={mode === 'signup' ? 'اثنا عشر حرفًا على الأقل.' : null}>
+                                <input type="password" className={inputClass} value={form.password} onChange={set('password')}
+                                       required minLength={mode === 'signup' ? 12 : 1}
+                                       autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} />
+                            </Field>
 
-                        <button type="submit" disabled={busy}
-                                className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-60 text-white font-bold rounded-xl shadow-lg shadow-blue-500/20 text-sm flex items-center justify-center gap-2">
-                            {busy && <i className="fa-solid fa-circle-notch fa-spin"></i>}
-                            <span>{mode === 'login' ? 'تسجيل الدخول' : 'إنشاء الحساب'}</span>
-                        </button>
-                    </form>
+                            {mode === 'signup' && (
+                                <React.Fragment>
+                                    <Field label="تأكيد كلمة المرور" required>
+                                        <input type="password" className={inputClass} value={form.confirmPassword} onChange={set('confirmPassword')}
+                                               required minLength={12} autoComplete="new-password" />
+                                    </Field>
+                                    <Field label="سبب طلب الحساب / ملاحظات" hint="اختياري">
+                                        <textarea className={cx(inputClass, 'h-16 resize-none')} value={form.request_notes} onChange={set('request_notes')} placeholder="أي تفاصيل ترغب في إضافتها لمسؤول النظام..." maxLength={500} />
+                                    </Field>
+                                </React.Fragment>
+                            )}
+
+                            <button type="submit" disabled={busy}
+                                    className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-60 text-white font-bold rounded-xl shadow-lg shadow-blue-500/20 text-sm flex items-center justify-center gap-2">
+                                {busy && <i className="fa-solid fa-circle-notch fa-spin"></i>}
+                                <span>{mode === 'login' ? 'تسجيل الدخول' : 'إرسال طلب إنشاء الحساب'}</span>
+                            </button>
+                        </form>
+                    )}
                 </div>
             </div>
         );
@@ -1749,11 +1816,32 @@
 
     function translateAuthError(err) {
         const message = String((err && err.message) || err || '');
-        if (err && err.code === 'ACCOUNT_PENDING') return err.message || 'تم إنشاء حسابك بنجاح وهو قيد المراجعة والاعتماد من قبل مدير النظام. يرجى الانتظار لحين منحك حق الوصول.';
-        if (/ACCOUNT_PENDING/i.test(message) || /قيد المراجعة والاعتماد/i.test(message)) return 'تم إنشاء حسابك بنجاح وهو قيد المراجعة والاعتماد من قبل مدير النظام. يرجى الانتظار لحين منحك حق الوصول.';
-        if (/ACCOUNT_INACTIVE/i.test(message) || /غير نشط/i.test(message)) return 'هذا الحساب غير نشط أو تم تعطيله. يرجى التواصل مع إدارة النظام.';
+        const code = (err && err.code) || '';
+        if (code === 'ACCOUNT_PENDING' || /ACCOUNT_PENDING/i.test(message) || /قيد المراجعة والاعتماد/i.test(message)) {
+            return 'حسابك مسجل بنجاح ولكنه لا يزال بانتظار اعتماد مسؤول النظام.';
+        }
+        if (code === 'ACCOUNT_REJECTED' || /ACCOUNT_REJECTED/i.test(message) || /تم رفض/i.test(message)) {
+            return 'تعذر تفعيل الحساب. يرجى التواصل مع مسؤول النظام للمزيد من المعلومات.';
+        }
+        if (code === 'ACCOUNT_NEEDS_INFO' || /ACCOUNT_NEEDS_INFO/i.test(message) || /استكمال البيانات/i.test(message)) {
+            return 'طلبك بانتظار استكمال البيانات. يرجى مراجعة البريد الإلكتروني أو التواصل مع الإدارة.';
+        }
+        if (code === 'ACCOUNT_INACTIVE' || /ACCOUNT_INACTIVE/i.test(message) || /غير نشط|موقوف|معطل/i.test(message)) {
+            return 'هذا الحساب معطل أو موقوف من قبل الإدارة. يرجى التواصل مع مسؤول النظام.';
+        }
+        if (code === 'SIGNUP_DISABLED' || /SIGNUP_DISABLED/i.test(message) || /إنشاء الحسابات العامة معطل/i.test(message)) {
+            return 'إنشاء الحسابات العامة معطّل حاليًا من قبل الإدارة. يرجى التواصل مع مسؤول النظام إذا كنت بحاجة إلى حساب.';
+        }
+        if (code === 'REGISTRATION_PENDING' || /REGISTRATION_PENDING/i.test(message)) {
+            return 'يوجد طلب تسجيل سابق بهذا البريد الإلكتروني وهو قيد المراجعة.';
+        }
+        if (code === 'MOBILE_EXISTS' || /MOBILE_EXISTS/i.test(message)) {
+            return 'رقم الجوال هذا مسجل مسبقاً في النظام.';
+        }
+        if (code === 'EMAIL_EXISTS' || /EMAIL_EXISTS/i.test(message) || /User already registered/i.test(message)) {
+            return 'هذا البريد الإلكتروني مسجل مسبقاً في النظام.';
+        }
         if (/Invalid login credentials/i.test(message)) return 'البريد الإلكتروني أو كلمة المرور غير صحيحة.';
-        if (/User already registered/i.test(message))   return 'هذا البريد مسجل مسبقًا.';
         if (/rate limit|too many/i.test(message))       return 'محاولات كثيرة خلال وقت قصير. انتظر قليلًا ثم أعد المحاولة.';
         if (/Password should be/i.test(message))        return 'كلمة المرور ضعيفة جدًا. استخدم اثني عشر حرفًا على الأقل.';
         return message || 'تعذّر إتمام العملية.';
@@ -2534,115 +2622,1000 @@
         );
     }
 
-    function UsersScreen({ data, profile, onEdit, onDelete, onInvite, onResetPassword, onApprove }) {
-        const { profiles } = data;
+    function ApproveRegistrationModal({ open, user, api, onClose, onSuccess, toast }) {
+        const [form, setForm] = useState({
+            role: 'user',
+            org: 'wamy',
+            position: '',
+            department: '',
+            team: '',
+            data_scope: 'my_data',
+            permissions: EMPTY_PERMISSIONS
+        });
+        const [busy, setBusy] = useState(false);
+
+        useEffect(() => {
+            if (!open || !user) return;
+            setForm({
+                role: user.role && user.role !== 'guest' ? user.role : 'user',
+                org: user.org || 'wamy',
+                position: user.position || '',
+                department: user.department || '',
+                team: user.team || '',
+                data_scope: user.data_scope || 'my_data',
+                permissions: { ...EMPTY_PERMISSIONS, ...(user.permissions || {}) }
+            });
+        }, [open, user]);
+
+        if (!open || !user) return null;
+
+        const set = (key) => (e) => setForm(prev => ({ ...prev, [key]: e.target.value }));
+        const togglePermission = (key) => (e) =>
+            setForm(prev => ({ ...prev, permissions: { ...prev.permissions, [key]: e.target.checked } }));
+
+        const selectAllPermissions = () => {
+            const all = {};
+            PERMISSIONS.forEach(p => { all[p.key] = true; });
+            setForm(prev => ({ ...prev, permissions: all }));
+        };
+
+        const clearAllPermissions = () => {
+            setForm(prev => ({ ...prev, permissions: EMPTY_PERMISSIONS }));
+        };
+
+        const adminImplied = form.role === 'admin';
+
+        const handleSubmit = async (e) => {
+            e.preventDefault();
+            setBusy(true);
+            try {
+                await api.profiles.approve(user.id, {
+                    role: form.role,
+                    org: form.org,
+                    position: form.position,
+                    department: form.department,
+                    team: form.team,
+                    data_scope: form.data_scope,
+                    permissions: form.permissions
+                });
+                toast.success(`تم اعتماد وتفعيل حساب ${user.name} بنجاح`);
+                if (onSuccess) onSuccess();
+                onClose();
+            } catch (err) {
+                toast.error(err.message || 'تعذّر اعتماد الحساب');
+            } finally {
+                setBusy(false);
+            }
+        };
+
+        return (
+            <Modal open={open} onClose={onClose} size="lg"
+                   title="اعتماد وتفعيل حساب المستخدم"
+                   subtitle={`${user.name} (${user.email})`}
+                   footer={
+                       <React.Fragment>
+                           <button type="button" onClick={onClose} disabled={busy} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-sm font-bold">إلغاء</button>
+                           <button type="submit" form="approve-registration-form" disabled={busy}
+                                   className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white rounded-xl text-sm font-bold shadow-lg shadow-emerald-900/30 flex items-center gap-2">
+                               {busy ? <i className="fa-solid fa-circle-notch fa-spin"></i> : <i className="fa-solid fa-user-check"></i>}
+                               <span>تأكيد الاعتماد والتفعيل</span>
+                           </button>
+                       </React.Fragment>
+                   }>
+                <form id="approve-registration-form" onSubmit={handleSubmit} className="space-y-4">
+                    <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-200 text-xs flex items-center gap-2">
+                        <i className="fa-solid fa-shield-halved text-emerald-400 text-base"></i>
+                        <span>عند اعتماد هذا الحساب، ستصبح حالته «نشط» وسيحصل فوراً على الدور والصلاحيات المحددة أدناه.</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <Field label="الاسم الكامل">
+                            <input className={inputClass} value={user.name || ''} disabled readOnly />
+                        </Field>
+                        <Field label="البريد الإلكتروني">
+                            <input className={inputClass} value={user.email || ''} dir="ltr" disabled readOnly />
+                        </Field>
+                        {user.mobile && (
+                            <Field label="رقم الجوال">
+                                <input className={inputClass} value={user.mobile || ''} dir="ltr" disabled readOnly />
+                            </Field>
+                        )}
+                        <Field label="الجهة" required>
+                            <select className={inputClass} value={form.org} onChange={set('org')}>
+                                {ORG_LIST.map(o => <option key={o.code} value={o.code}>{o.label}</option>)}
+                            </select>
+                        </Field>
+                        <Field label="الدور القيادي / الوظيفي" required>
+                            <select className={inputClass} value={form.role} onChange={set('role')}>
+                                {Object.values(ROLES).map(r => <option key={r.code} value={r.code}>{r.label} — {r.hint}</option>)}
+                            </select>
+                        </Field>
+                        <Field label="المنصب / المسمى الوظيفي">
+                            <input className={inputClass} value={form.position} onChange={set('position')} placeholder="مثال: منسق إعلامي، مصمم..." />
+                        </Field>
+                        <Field label="الإدارة / القسم">
+                            <input className={inputClass} value={form.department} onChange={set('department')} placeholder="مثال: إدارة الإنتاج، إدارة النشر..." />
+                        </Field>
+                        <Field label="الفريق / الوحدة">
+                            <input className={inputClass} value={form.team} onChange={set('team')} placeholder="مثال: فريق الرصد، فريق التصميم..." />
+                        </Field>
+                        <Field label="نطاق البيانات" required>
+                            <select className={inputClass} value={form.data_scope} onChange={set('data_scope')}>
+                                {Object.entries(DATA_SCOPES).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}
+                            </select>
+                        </Field>
+                    </div>
+
+                    {user.request_notes && (
+                        <div className="p-3 bg-slate-950/60 border border-slate-800 rounded-xl text-xs space-y-1">
+                            <span className="font-bold text-slate-400 block">ملاحظات مقدم الطلب أثناء التسجيل:</span>
+                            <p className="text-slate-300 leading-relaxed">{user.request_notes}</p>
+                        </div>
+                    )}
+
+                    <fieldset className="border border-slate-800 rounded-xl p-4 space-y-4 max-h-[40vh] overflow-y-auto">
+                        <div className="flex items-center justify-between">
+                            <legend className="px-2 text-sm font-bold text-slate-300">الصلاحيات الممنوحة</legend>
+                            {!adminImplied && (
+                                <div className="flex items-center gap-2 text-xs">
+                                    <button type="button" onClick={selectAllPermissions} className="text-purple-400 hover:text-purple-300 font-bold">تحديد الكل</button>
+                                    <span className="text-slate-600">|</span>
+                                    <button type="button" onClick={clearAllPermissions} className="text-slate-400 hover:text-slate-300 font-bold">إلغاء التحديد</button>
+                                </div>
+                            )}
+                        </div>
+                        {adminImplied && (
+                            <p className="text-xs text-purple-300 bg-purple-950/40 border border-purple-500/30 rounded-lg p-2.5">
+                                دور مدير النظام يملك جميع الصلاحيات تلقائياً؛ خيارات الصلاحيات الفردية معطّلة.
+                            </p>
+                        )}
+                        {PERMISSION_GROUPS.map(group => (
+                            <div key={group.label}>
+                                <h4 className="text-xs font-extrabold text-blue-300 mb-2">{group.label}</h4>
+                                <div className="grid sm:grid-cols-2 gap-2">
+                                    {group.items.map(p => (
+                                        <label key={p.key} className="flex items-center gap-2 cursor-pointer text-sm text-slate-200">
+                                            <input type="checkbox" className="w-4 h-4 accent-purple-500 disabled:opacity-40"
+                                                   checked={adminImplied || !!form.permissions[p.key]}
+                                                   disabled={adminImplied}
+                                                   onChange={togglePermission(p.key)} />
+                                            <span>{p.label}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </fieldset>
+                </form>
+            </Modal>
+        );
+    }
+
+    function RejectRegistrationModal({ open, user, api, onClose, onSuccess, toast }) {
+        const [reason, setReason] = useState('');
+        const [busy, setBusy] = useState(false);
+
+        useEffect(() => {
+            if (open) {
+                setReason('');
+            }
+        }, [open]);
+
+        if (!open || !user) return null;
+
+        const handleSubmit = async (e) => {
+            e.preventDefault();
+            if (!reason.trim()) {
+                toast.error('يرجى كتابة سبب رفض الطلب');
+                return;
+            }
+            setBusy(true);
+            try {
+                await api.profiles.reject(user.id, { reason: reason.trim() });
+                toast.success(`تم رفض طلب التسجيل لـ ${user.name}`);
+                if (onSuccess) onSuccess();
+                onClose();
+            } catch (err) {
+                toast.error(err.message || 'تعذّر رفض الطلب');
+            } finally {
+                setBusy(false);
+            }
+        };
+
+        return (
+            <Modal open={open} onClose={onClose} size="md"
+                   title="رفض طلب التسجيل"
+                   subtitle={`${user.name} (${user.email})`}
+                   footer={
+                       <React.Fragment>
+                           <button type="button" onClick={onClose} disabled={busy} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-sm font-bold">إلغاء</button>
+                           <button type="submit" form="reject-registration-form" disabled={busy}
+                                   className="px-5 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-60 text-white rounded-xl text-sm font-bold shadow-lg shadow-rose-900/30 flex items-center gap-2">
+                               {busy ? <i className="fa-solid fa-circle-notch fa-spin"></i> : <i className="fa-solid fa-user-xmark"></i>}
+                               <span>تأكيد رفض الطلب</span>
+                           </button>
+                       </React.Fragment>
+                   }>
+                <form id="reject-registration-form" onSubmit={handleSubmit} className="space-y-4">
+                    <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-200 text-xs flex items-start gap-2">
+                        <i className="fa-solid fa-triangle-exclamation text-rose-400 mt-0.5"></i>
+                        <span>سيتم تغيير حالة الطلب إلى «مرفوض»، ولن يتمكن صاحب الحساب من تسجيل الدخول إلى النظام. سيتم تسجيل سبب الرفض في سجل النظام.</span>
+                    </div>
+
+                    <Field label="سبب الرفض" required hint="اكتب توضيحاً لسبب رفض الطلب">
+                        <textarea className={inputClass} rows="4" value={reason} onChange={(e) => setReason(e.target.value)}
+                                  placeholder="مثال: لم يتم إثبات التبعية للجهة، أو طلب مكرر..." required />
+                    </Field>
+                </form>
+            </Modal>
+        );
+    }
+
+    function RequestInfoRegistrationModal({ open, user, api, onClose, onSuccess, toast }) {
+        const [note, setNote] = useState('');
+        const [busy, setBusy] = useState(false);
+
+        useEffect(() => {
+            if (open) {
+                setNote('');
+            }
+        }, [open]);
+
+        if (!open || !user) return null;
+
+        const handleSubmit = async (e) => {
+            e.preventDefault();
+            if (!note.trim()) {
+                toast.error('يرجى تحديد البيانات أو التوضيحات المطلوبة');
+                return;
+            }
+            setBusy(true);
+            try {
+                await api.profiles.requestInfo(user.id, { note: note.trim() });
+                toast.success(`تم تحديث حالة الطلب إلى «استكمال بيانات» لـ ${user.name}`);
+                if (onSuccess) onSuccess();
+                onClose();
+            } catch (err) {
+                toast.error(err.message || 'تعذّر إرسال الطلب');
+            } finally {
+                setBusy(false);
+            }
+        };
+
+        return (
+            <Modal open={open} onClose={onClose} size="md"
+                   title="طلب استكمال بيانات التسجيل"
+                   subtitle={`${user.name} (${user.email})`}
+                   footer={
+                       <React.Fragment>
+                           <button type="button" onClick={onClose} disabled={busy} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-sm font-bold">إلغاء</button>
+                           <button type="submit" form="request-info-form" disabled={busy}
+                                   className="px-5 py-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-60 text-white rounded-xl text-sm font-bold shadow-lg shadow-sky-900/30 flex items-center gap-2">
+                               {busy ? <i className="fa-solid fa-circle-notch fa-spin"></i> : <i className="fa-solid fa-comment-dots"></i>}
+                               <span>إرسال طلب الاستكمال</span>
+                           </button>
+                       </React.Fragment>
+                   }>
+                <form id="request-info-form" onSubmit={handleSubmit} className="space-y-4">
+                    <div className="p-3 bg-sky-500/10 border border-sky-500/30 rounded-xl text-sky-200 text-xs flex items-start gap-2">
+                        <i className="fa-solid fa-circle-info text-sky-400 mt-0.5"></i>
+                        <span>سيتم تغيير حالة الطلب إلى «استكمال بيانات» مع تسجيل التوجيهات والملاحظات المطلوبة لمراجعتها لاحقاً.</span>
+                    </div>
+
+                    <Field label="البيانات أو المستندات المطلوبة" required hint="حدد المطلوب من مقدم الطلب بدقة">
+                        <textarea className={inputClass} rows="4" value={note} onChange={(e) => setNote(e.target.value)}
+                                  placeholder="مثال: يرجى تزويدنا بالقسم أو الإدارة الدقيقة، ورقم التحويلة الداخلية أو تأكيد المسؤول المباشر..." required />
+                    </Field>
+                </form>
+            </Modal>
+        );
+    }
+
+    function RegistrationDetailsModal({ open, user, onClose, onApprove, onReject, onRequestInfo }) {
+        if (!open || !user) return null;
+        const status = lookup(USER_STATUS, user.status, 'pending');
+
+        return (
+            <Modal open={open} onClose={onClose} size="lg"
+                   title="تفاصيل طلب التسجيل"
+                   subtitle={`${user.name} — ${user.email}`}
+                   footer={
+                       <div className="flex items-center justify-between w-full">
+                           <button type="button" onClick={onClose} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-sm font-bold">إغلاق</button>
+                           <div className="flex items-center gap-2">
+                               {user.status !== 'active' && onApprove && (
+                                   <button type="button" onClick={() => { onClose(); onApprove(user); }}
+                                           className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-bold flex items-center gap-1.5 shadow-md shadow-emerald-900/30">
+                                       <i className="fa-solid fa-user-check"></i>
+                                       <span>اعتماد وتفعيل</span>
+                                   </button>
+                               )}
+                               {user.status !== 'needs_info' && user.status !== 'active' && onRequestInfo && (
+                                   <button type="button" onClick={() => { onClose(); onRequestInfo(user); }}
+                                           className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-sm font-bold flex items-center gap-1.5 shadow-md shadow-sky-900/30">
+                                       <i className="fa-solid fa-comment-dots"></i>
+                                       <span>طلب استكمال</span>
+                                   </button>
+                               )}
+                               {user.status !== 'rejected' && onReject && (
+                                   <button type="button" onClick={() => { onClose(); onReject(user); }}
+                                           className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-sm font-bold flex items-center gap-1.5 shadow-md shadow-rose-900/30">
+                                       <i className="fa-solid fa-user-xmark"></i>
+                                       <span>رفض الطلب</span>
+                                   </button>
+                               )}
+                           </div>
+                       </div>
+                   }>
+                <div className="space-y-4 text-sm">
+                    <div className="flex items-center justify-between p-4 bg-slate-950/60 border border-slate-800 rounded-2xl">
+                        <div className="flex items-center gap-3">
+                            <Avatar name={user.name} size="w-12 h-12 text-sm" />
+                            <div>
+                                <h3 className="font-bold text-white text-base">{user.name}</h3>
+                                <p className="text-xs text-slate-400 font-mono" dir="ltr">{user.email}</p>
+                            </div>
+                        </div>
+                        <Chip className={status.chip}>{status.label}</Chip>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="p-3.5 bg-slate-900 border border-slate-800 rounded-xl">
+                            <span className="text-xs text-slate-400 block mb-1">الجهة:</span>
+                            <OrgChip code={user.org} />
+                        </div>
+                        <div className="p-3.5 bg-slate-900 border border-slate-800 rounded-xl">
+                            <span className="text-xs text-slate-400 block mb-1">رقم الجوال:</span>
+                            <span className="font-bold text-slate-200 font-mono" dir="ltr">{user.mobile || 'غير محدد'}</span>
+                        </div>
+                        <div className="p-3.5 bg-slate-900 border border-slate-800 rounded-xl">
+                            <span className="text-xs text-slate-400 block mb-1">المنصب / المسمى المقترح:</span>
+                            <span className="font-bold text-slate-200">{user.position || 'غير محدد'}</span>
+                        </div>
+                        <div className="p-3.5 bg-slate-900 border border-slate-800 rounded-xl">
+                            <span className="text-xs text-slate-400 block mb-1">تاريخ تقديم الطلب:</span>
+                            <span className="font-bold text-slate-200">{formatDateTime(user.created_at)}</span>
+                        </div>
+                    </div>
+
+                    {user.request_notes && (
+                        <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl space-y-1.5">
+                            <span className="text-xs font-bold text-purple-400 block">
+                                <i className="fa-solid fa-note-sticky me-1.5"></i>ملاحظات مقدم الطلب:
+                            </span>
+                            <p className="text-slate-300 leading-relaxed whitespace-pre-wrap">{user.request_notes}</p>
+                        </div>
+                    )}
+
+                    {user.request_info_note && (
+                        <div className="p-4 bg-sky-950/30 border border-sky-500/30 rounded-xl space-y-1.5 text-sky-200">
+                            <span className="text-xs font-bold text-sky-400 block">
+                                <i className="fa-solid fa-comment-dots me-1.5"></i>ملاحظات طلب استكمال البيانات:
+                            </span>
+                            <p className="leading-relaxed whitespace-pre-wrap">{user.request_info_note}</p>
+                        </div>
+                    )}
+
+                    {user.rejection_reason && (
+                        <div className="p-4 bg-rose-950/30 border border-rose-500/30 rounded-xl space-y-1.5 text-rose-200">
+                            <span className="text-xs font-bold text-rose-400 block">
+                                <i className="fa-solid fa-circle-exclamation me-1.5"></i>سبب الرفض:
+                            </span>
+                            <p className="leading-relaxed whitespace-pre-wrap">{user.rejection_reason}</p>
+                        </div>
+                    )}
+
+                    <div className="p-4 bg-slate-950/40 border border-slate-800/80 rounded-xl text-xs space-y-2 text-slate-400">
+                        <span className="font-bold text-slate-300 block">سجل الاعتماد والمراجعة:</span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div>
+                                <span className="text-slate-500">تمت المراجعة بواسطة: </span>
+                                <span className="text-slate-300 font-semibold">{user.reviewed_by_name || '—'}</span>
+                            </div>
+                            <div>
+                                <span className="text-slate-500">تاريخ المراجعة: </span>
+                                <span className="text-slate-300 font-semibold">{user.reviewed_at ? formatDateTime(user.reviewed_at) : '—'}</span>
+                            </div>
+                            <div>
+                                <span className="text-slate-500">تم الاعتماد بواسطة: </span>
+                                <span className="text-slate-300 font-semibold">{user.approved_by_name || '—'}</span>
+                            </div>
+                            <div>
+                                <span className="text-slate-500">تاريخ الاعتماد: </span>
+                                <span className="text-slate-300 font-semibold">{user.approved_at ? formatDateTime(user.approved_at) : '—'}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </Modal>
+        );
+    }
+
+    function UsersScreen({ data, profile, settings, onSave, saving, api, refresh, toast, onEdit, onDelete, onInvite, onResetPassword, onApprove }) {
+        const { profiles = [] } = data;
+        const [activeSubTab, setActiveSubTab] = useState('users');
+        const [userSearch, setUserSearch] = useState('');
+        const [userOrgFilter, setUserOrgFilter] = useState('all');
+        const [userRoleFilter, setUserRoleFilter] = useState('all');
+        const [userStatusFilter, setUserStatusFilter] = useState('all');
+
+        const [reqSearch, setReqSearch] = useState('');
+        const [reqOrgFilter, setReqOrgFilter] = useState('all');
+        const [reqStatusFilter, setReqStatusFilter] = useState('all');
+
+        // Review Modals State
+        const [approveModalUser, setApproveModalUser] = useState(null);
+        const [rejectModalUser, setRejectModalUser] = useState(null);
+        const [requestInfoModalUser, setRequestInfoModalUser] = useState(null);
+        const [detailsModalUser, setDetailsModalUser] = useState(null);
+
+        // Public Signup Toggle State
+        const [togglingSignup, setTogglingSignup] = useState(false);
+        const publicSignupEnabled = settings?.allow_public_signup !== false;
+
+        const mayManagePublicSignup = isAdmin(profile) || can(profile, 'Security.PublicRegistration.Manage');
+        const mayReviewRequests = isAdmin(profile) || can(profile, 'Users.Review') || can(profile, 'Security.Users');
+        const mayApproveRequests = isAdmin(profile) || can(profile, 'Users.Approve') || can(profile, 'Security.Users');
+        const mayRejectRequests = isAdmin(profile) || can(profile, 'Users.Reject') || can(profile, 'Security.Users');
         const mayEdit = isAdmin(profile) || can(profile, 'Settings.Users');
         const mayDelete = isAdmin(profile);
         const mayResetPw = isAdmin(profile);
 
+        const handleTogglePublicSignup = async () => {
+            if (!mayManagePublicSignup) {
+                toast?.error('ليست لديك الصلاحية لتعديل إعدادات التسجيل العام');
+                return;
+            }
+            setTogglingSignup(true);
+            try {
+                const nextVal = !publicSignupEnabled;
+                await api.settings.update({ allow_public_signup: nextVal });
+                if (toast) toast.success(nextVal ? 'تم تفعيل إنشاء الحسابات العامة بنجاح' : 'تم تعطيل إنشاء الحسابات العامة بنجاح');
+                if (refresh) await refresh();
+            } catch (err) {
+                if (toast) toast.error(err.message || 'تعذّر تحديث إعدادات التسجيل العام');
+            } finally {
+                setTogglingSignup(false);
+            }
+        };
+
+        // Separate user list vs registration requests
+        const pendingRequests = profiles.filter(u => u.status === 'pending');
+        const allRegistrationRequests = profiles.filter(u => ['pending', 'needs_info', 'rejected'].includes(u.status) || u.request_notes);
+
+        // Filtered users list
+        const filteredUsers = profiles.filter(u => {
+            if (userOrgFilter !== 'all' && u.org !== userOrgFilter) return false;
+            if (userRoleFilter !== 'all' && u.role !== userRoleFilter) return false;
+            if (userStatusFilter !== 'all' && u.status !== userStatusFilter) return false;
+            if (userSearch.trim()) {
+                const q = userSearch.trim().toLowerCase();
+                const matchName = (u.name || '').toLowerCase().includes(q);
+                const matchEmail = (u.email || '').toLowerCase().includes(q);
+                const matchPos = (u.position || '').toLowerCase().includes(q);
+                if (!matchName && !matchEmail && !matchPos) return false;
+            }
+            return true;
+        });
+
+        // Filtered requests list
+        const filteredRequests = (reqStatusFilter === 'all' ? allRegistrationRequests : profiles.filter(u => u.status === reqStatusFilter)).filter(u => {
+            if (reqOrgFilter !== 'all' && u.org !== reqOrgFilter) return false;
+            if (reqSearch.trim()) {
+                const q = reqSearch.trim().toLowerCase();
+                const matchName = (u.name || '').toLowerCase().includes(q);
+                const matchEmail = (u.email || '').toLowerCase().includes(q);
+                const matchMobile = (u.mobile || '').toLowerCase().includes(q);
+                const matchNotes = (u.request_notes || '').toLowerCase().includes(q);
+                if (!matchName && !matchEmail && !matchMobile && !matchNotes) return false;
+            }
+            return true;
+        });
+
         return (
-            <div className="space-y-5">
+            <div className="space-y-6">
                 <SectionHeading icon="fa-users-gear" title="إدارة المستخدمين والصلاحيات"
-                                description="أضف المستخدم وحدد صلاحياته ثم أرسل له رابط تسجيل آمنًا وخاصًا.">
-                    {isAdmin(profile) && <button onClick={() => onInvite(null)} className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-sm font-bold"><i className="fa-solid fa-user-plus me-1.5"></i>إضافة مستخدم ودعوته</button>}
+                                description="إدارة حسابات الفريق، مراجعة طلبات التسجيل، وتحديد الصلاحيات التشغيلية بدقة.">
+                    {isAdmin(profile) && (
+                        <button onClick={() => onInvite(null)} className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-sm font-bold shadow-lg shadow-purple-900/30 flex items-center gap-2">
+                            <i className="fa-solid fa-user-plus"></i>
+                            <span>إضافة مستخدم ودعوته</span>
+                        </button>
+                    )}
                 </SectionHeading>
 
-                <div className="p-4 bg-slate-900 border border-blue-500/30 rounded-2xl flex items-start gap-3 text-sm">
-                    <i className="fa-solid fa-circle-info text-blue-400 mt-0.5"></i>
-                    <p className="text-slate-300 leading-relaxed">
-                        الصلاحيات أدناه مطبَّقة فعليًا داخل واجهة الخادم، وليست إخفاءً للأزرار فقط:
-                        المستخدم بلا صلاحية «إنشاء وتعديل المهام» لا يستطيع إنشاءها حتى لو استُدعيت الواجهة البرمجية مباشرة.
-                    </p>
-                </div>
-
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-md">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                            <caption className="sr-only">أعضاء الفريق وصلاحياتهم</caption>
-                            <thead>
-                                <tr className="border-b border-slate-800 text-slate-400 bg-slate-950/40 text-xs">
-                                    <th scope="col" className="p-4 font-bold text-start">المستخدم</th>
-                                    <th scope="col" className="p-4 font-bold text-start">الجهة</th>
-                                    <th scope="col" className="p-4 font-bold text-start">الدور</th>
-                                    <th scope="col" className="p-4 font-bold text-start">الصلاحيات</th>
-                                    <th scope="col" className="p-4 font-bold text-start">الحالة</th>
-                                    <th scope="col" className="p-4 font-bold text-center no-print">إجراءات</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-800/60">
-                                {profiles.map(u => {
-                                    const role   = lookup(ROLES, u.role, 'user');
-                                    const status = lookup(USER_STATUS, u.status, 'pending');
-                                    const granted = u.role === 'admin'
-                                        ? PERMISSIONS.length
-                                        : PERMISSIONS.filter(p => (u.permissions || {})[p.key]).length;
-                                    return (
-                                        <tr key={u.id} className="hover:bg-slate-800/30">
-                                            <td className="p-4">
-                                                <div className="flex items-center gap-3">
-                                                    <Avatar name={u.name} size="w-9 h-9 text-xs" />
-                                                    <div className="min-w-0">
-                                                        <span className="font-bold text-white block truncate">
-                                                            {u.name}
-                                                            {u.id === profile.id && <span className="text-xs text-emerald-400 font-bold"> (أنت)</span>}
-                                                        </span>
-                                                        <span className="text-xs text-slate-400 font-mono block truncate" dir="ltr">{u.email}</span>
-                                                        {u.position && <span className="text-xs text-slate-500 block truncate">{u.position}</span>}
-                                                    </div>
-                                                </div>
-                                            </td>
-                                            <td className="p-4"><OrgChip code={u.org} /></td>
-                                            <td className="p-4">
-                                                <Chip className={role.chip} title={role.hint}>{role.label}</Chip>
-                                            </td>
-                                            <td className="p-4 text-xs text-slate-400 whitespace-nowrap">
-                                                {u.role === 'admin' ? 'جميع الصلاحيات' : `${granted} من ${PERMISSIONS.length}`}
-                                            </td>
-                                            <td className="p-4"><Chip className={status.chip}>{status.label}</Chip>{u.invitation_expires_at && <span className="block text-[11px] text-purple-300 mt-1">الدعوة صالحة حتى {formatDateTime(u.invitation_expires_at)}</span>}</td>
-                                            <td className="p-4 no-print">
-                                                {mayEdit ? (
-                                                    <div className="flex items-center justify-center gap-1.5">
-                                                        {u.status === 'pending' && onApprove && (
-                                                            <button onClick={() => onApprove(u)} title="اعتماد وتفعيل المستخدم فوراً" aria-label={`اعتماد ${u.name}`}
-                                                                    className="p-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 rounded-lg">
-                                                                <i className="fa-solid fa-user-check"></i>
-                                                            </button>
-                                                        )}
-                                                        <button onClick={() => onEdit(u)} aria-label={`تعديل ${u.name}`}
-                                                                className="p-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded-lg" title="تعديل المستخدم">
-                                                            <i className="fa-solid fa-pen-to-square"></i>
-                                                        </button>
-                                                        {mayResetPw && onResetPassword && (
-                                                            <button onClick={() => onResetPassword(u)} title="إعادة تعيين كلمة المرور" aria-label={`إعادة تعيين كلمة المرور لـ ${u.name}`}
-                                                                    className="p-2 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 rounded-lg">
-                                                            <i className="fa-solid fa-key"></i>
-                                                            </button>
-                                                        )}
-                                                        {isAdmin(profile) && u.status === 'pending' && (
-                                                            <button onClick={() => onInvite(u)} title="إصدار رابط تسجيل جديد" aria-label={`دعوة ${u.name}`}
-                                                                    className="p-2 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 rounded-lg">
-                                                                <i className="fa-solid fa-link"></i>
-                                                            </button>
-                                                        )}
-                                                        {mayDelete && u.id !== profile.id && (
-                                                            <button onClick={() => onDelete(u)} aria-label={`حذف ${u.name}`}
-                                                                    className="p-2 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 rounded-lg" title="حذف المستخدم">
-                                                                <i className="fa-solid fa-trash-can"></i>
-                                                            </button>
-                                                        )}
-                                                    </div>
-                                                ) : <span className="text-xs text-slate-500 block text-center">للمدير فقط</span>}
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
+                {/* Public Registration Settings Card */}
+                <div className="p-5 bg-gradient-to-r from-slate-900 via-slate-900 to-purple-950/30 border border-purple-500/30 rounded-2xl shadow-lg flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                    <div className="flex items-start gap-4">
+                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl shrink-0 ${publicSignupEnabled ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700'}`}>
+                            <i className={`fa-solid ${publicSignupEnabled ? 'fa-user-check' : 'fa-user-lock'}`}></i>
+                        </div>
+                        <div className="space-y-1">
+                            <div className="flex items-center gap-2.5">
+                                <h3 className="font-bold text-white text-base">السماح بإنشاء الحسابات العامة</h3>
+                                <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold flex items-center gap-1.5 ${publicSignupEnabled ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700'}`}>
+                                    <span className={`w-1.5 h-1.5 rounded-full ${publicSignupEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`}></span>
+                                    {publicSignupEnabled ? 'مفعّل' : 'معطّل'}
+                                </span>
+                            </div>
+                            <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
+                                يسمح للأفراد بإنشاء حساب جديد من شاشة تسجيل الدخول. جميع الحسابات الجديدة تحتاج إلى مراجعة واعتماد يدوي قبل تفعيلها.
+                            </p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0 self-end md:self-center">
+                        <button
+                            type="button"
+                            disabled={!mayManagePublicSignup || togglingSignup}
+                            onClick={handleTogglePublicSignup}
+                            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-md ${
+                                publicSignupEnabled
+                                    ? 'bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30'
+                                    : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/40'
+                            } disabled:opacity-50 disabled:cursor-not-allowed`}
+                        >
+                            {togglingSignup ? (
+                                <i className="fa-solid fa-circle-notch fa-spin"></i>
+                            ) : (
+                                <i className={`fa-solid ${publicSignupEnabled ? 'fa-toggle-on text-base' : 'fa-toggle-off text-base'}`}></i>
+                            )}
+                            <span>{publicSignupEnabled ? 'تعطيل التسجيل العام' : 'تفعيل التسجيل العام'}</span>
+                        </button>
                     </div>
                 </div>
+
+                {/* Sub-Tabs: Users List vs Registration Requests */}
+                <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
+                    <button
+                        type="button"
+                        onClick={() => setActiveSubTab('users')}
+                        className={`px-4 py-2.5 rounded-xl text-sm font-bold transition flex items-center gap-2 ${
+                            activeSubTab === 'users'
+                                ? 'bg-purple-600 text-white shadow-md shadow-purple-900/30'
+                                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                        }`}
+                    >
+                        <i className="fa-solid fa-users"></i>
+                        <span>قائمة المستخدمين</span>
+                        <span className="px-2 py-0.5 rounded-full text-xs bg-slate-900/60 border border-slate-700/50">
+                            {profiles.length}
+                        </span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setActiveSubTab('requests')}
+                        className={`px-4 py-2.5 rounded-xl text-sm font-bold transition flex items-center gap-2 relative ${
+                            activeSubTab === 'requests'
+                                ? 'bg-purple-600 text-white shadow-md shadow-purple-900/30'
+                                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                        }`}
+                    >
+                        <i className="fa-solid fa-user-clock"></i>
+                        <span>طلبات التسجيل</span>
+                        {pendingRequests.length > 0 ? (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-extrabold bg-amber-500 text-slate-950 animate-bounce">
+                                {pendingRequests.length} جديد
+                            </span>
+                        ) : (
+                            <span className="px-2 py-0.5 rounded-full text-xs bg-slate-900/60 border border-slate-700/50">
+                                {allRegistrationRequests.length}
+                            </span>
+                        )}
+                    </button>
+                </div>
+
+                {/* TAB 1: USERS LIST */}
+                {activeSubTab === 'users' && (
+                    <div className="space-y-4">
+                        {/* Filters & Search */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 bg-slate-900/80 p-3.5 border border-slate-800 rounded-2xl">
+                            <div className="relative">
+                                <i className="fa-solid fa-magnifying-glass absolute top-1/2 -translate-y-1/2 start-3 text-slate-500 text-xs"></i>
+                                <input
+                                    type="text"
+                                    value={userSearch}
+                                    onChange={(e) => setUserSearch(e.target.value)}
+                                    placeholder="بحث بالاسم أو البريد..."
+                                    className={`${inputClass} ps-8 text-xs`}
+                                />
+                            </div>
+                            <div>
+                                <select
+                                    value={userOrgFilter}
+                                    onChange={(e) => setUserOrgFilter(e.target.value)}
+                                    className={`${inputClass} text-xs`}
+                                >
+                                    <option value="all">كل الجهات</option>
+                                    {ORG_LIST.map(o => <option key={o.code} value={o.code}>{o.label}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <select
+                                    value={userRoleFilter}
+                                    onChange={(e) => setUserRoleFilter(e.target.value)}
+                                    className={`${inputClass} text-xs`}
+                                >
+                                    <option value="all">كل الأدوار</option>
+                                    {Object.values(ROLES).map(r => <option key={r.code} value={r.code}>{r.label}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <select
+                                    value={userStatusFilter}
+                                    onChange={(e) => setUserStatusFilter(e.target.value)}
+                                    className={`${inputClass} text-xs`}
+                                >
+                                    <option value="all">كل الحالات</option>
+                                    {Object.values(USER_STATUS).map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
+                                </select>
+                            </div>
+                        </div>
+
+                        <div className="p-4 bg-slate-900 border border-blue-500/30 rounded-2xl flex items-start gap-3 text-sm">
+                            <i className="fa-solid fa-circle-info text-blue-400 mt-0.5"></i>
+                            <p className="text-slate-300 leading-relaxed text-xs">
+                                الصلاحيات أدناه مطبَّقة فعليًا داخل واجهة الخادم، وليست إخفاءً للأزرار فقط:
+                                المستخدم بلا صلاحية «إنشاء وتعديل المهام» لا يستطيع إنشاءها حتى لو استُدعيت الواجهة البرمجية مباشرة.
+                            </p>
+                        </div>
+
+                        <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-md">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <caption className="sr-only">أعضاء الفريق وصلاحياتهم</caption>
+                                    <thead>
+                                        <tr className="border-b border-slate-800 text-slate-400 bg-slate-950/40 text-xs">
+                                            <th scope="col" className="p-4 font-bold text-start">المستخدم</th>
+                                            <th scope="col" className="p-4 font-bold text-start">الجهة</th>
+                                            <th scope="col" className="p-4 font-bold text-start">الدور</th>
+                                            <th scope="col" className="p-4 font-bold text-start">الصلاحيات</th>
+                                            <th scope="col" className="p-4 font-bold text-start">الحالة</th>
+                                            <th scope="col" className="p-4 font-bold text-center no-print">إجراءات</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-800/60">
+                                        {filteredUsers.length === 0 ? (
+                                            <tr>
+                                                <td colSpan="6" className="p-8 text-center text-slate-500 text-xs">
+                                                    لا يوجد مستخدمون مطابقون لمعايير البحث
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            filteredUsers.map(u => {
+                                                const role = lookup(ROLES, u.role, 'user');
+                                                const status = lookup(USER_STATUS, u.status, 'pending');
+                                                const granted = u.role === 'admin'
+                                                    ? PERMISSIONS.length
+                                                    : PERMISSIONS.filter(p => (u.permissions || {})[p.key]).length;
+                                                return (
+                                                    <tr key={u.id} className="hover:bg-slate-800/30">
+                                                        <td className="p-4">
+                                                            <div className="flex items-center gap-3">
+                                                                <Avatar name={u.name} size="w-9 h-9 text-xs" />
+                                                                <div className="min-w-0">
+                                                                    <span className="font-bold text-white block truncate">
+                                                                        {u.name}
+                                                                        {u.id === profile.id && <span className="text-xs text-emerald-400 font-bold"> (أنت)</span>}
+                                                                    </span>
+                                                                    <span className="text-xs text-slate-400 font-mono block truncate" dir="ltr">{u.email}</span>
+                                                                    {u.position && <span className="text-xs text-slate-500 block truncate">{u.position}</span>}
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                        <td className="p-4"><OrgChip code={u.org} /></td>
+                                                        <td className="p-4">
+                                                            <Chip className={role.chip} title={role.hint}>{role.label}</Chip>
+                                                        </td>
+                                                        <td className="p-4 text-xs text-slate-400 whitespace-nowrap">
+                                                            {u.role === 'admin' ? 'جميع الصلاحيات' : `${granted} من ${PERMISSIONS.length}`}
+                                                        </td>
+                                                        <td className="p-4">
+                                                            <Chip className={status.chip}>{status.label}</Chip>
+                                                            {u.invitation_expires_at && <span className="block text-[11px] text-purple-300 mt-1">الدعوة صالحة حتى {formatDateTime(u.invitation_expires_at)}</span>}
+                                                        </td>
+                                                        <td className="p-4 no-print">
+                                                            {mayEdit ? (
+                                                                <div className="flex items-center justify-center gap-1.5">
+                                                                    {u.status === 'pending' && (
+                                                                        <button onClick={() => setApproveModalUser(u)} title="اعتماد وتفعيل المستخدم وتحديد صلاحياته" aria-label={`اعتماد ${u.name}`}
+                                                                                className="p-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 rounded-lg">
+                                                                            <i className="fa-solid fa-user-check"></i>
+                                                                        </button>
+                                                                    )}
+                                                                    <button onClick={() => onEdit(u)} aria-label={`تعديل ${u.name}`}
+                                                                            className="p-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded-lg" title="تعديل المستخدم">
+                                                                        <i className="fa-solid fa-pen-to-square"></i>
+                                                                    </button>
+                                                                    {mayResetPw && onResetPassword && (
+                                                                        <button onClick={() => onResetPassword(u)} title="إعادة تعيين كلمة المرور" aria-label={`إعادة تعيين كلمة المرور لـ ${u.name}`}
+                                                                                className="p-2 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 rounded-lg">
+                                                                            <i className="fa-solid fa-key"></i>
+                                                                        </button>
+                                                                    )}
+                                                                    {isAdmin(profile) && u.status === 'pending' && (
+                                                                        <button onClick={() => onInvite(u)} title="إصدار رابط تسجيل جديد" aria-label={`دعوة ${u.name}`}
+                                                                                className="p-2 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 rounded-lg">
+                                                                            <i className="fa-solid fa-link"></i>
+                                                                        </button>
+                                                                    )}
+                                                                    {mayDelete && u.id !== profile.id && (
+                                                                        <button onClick={() => onDelete(u)} aria-label={`حذف ${u.name}`}
+                                                                                className="p-2 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 rounded-lg" title="حذف المستخدم">
+                                                                            <i className="fa-solid fa-trash-can"></i>
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                            ) : <span className="text-xs text-slate-500 block text-center">للمدير فقط</span>}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* TAB 2: REGISTRATION REQUESTS */}
+                {activeSubTab === 'requests' && (
+                    <div className="space-y-4">
+                        {/* Quick Stats Badges */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            <div className="p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-lg">
+                                    <i className="fa-solid fa-hourglass-half"></i>
+                                </div>
+                                <div>
+                                    <span className="text-xs text-amber-300/80 block">بانتظار الاعتماد</span>
+                                    <span className="text-lg font-extrabold text-amber-300">{pendingRequests.length}</span>
+                                </div>
+                            </div>
+                            <div className="p-3.5 bg-sky-500/10 border border-sky-500/20 rounded-2xl flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-sky-500/20 text-sky-400 flex items-center justify-center font-bold text-lg">
+                                    <i className="fa-solid fa-clipboard-question"></i>
+                                </div>
+                                <div>
+                                    <span className="text-xs text-sky-300/80 block">استكمال بيانات</span>
+                                    <span className="text-lg font-extrabold text-sky-300">{profiles.filter(u => u.status === 'needs_info').length}</span>
+                                </div>
+                            </div>
+                            <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-2xl flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center font-bold text-lg">
+                                    <i className="fa-solid fa-user-xmark"></i>
+                                </div>
+                                <div>
+                                    <span className="text-xs text-rose-300/80 block">طلبات مرفوضة</span>
+                                    <span className="text-lg font-extrabold text-rose-300">{profiles.filter(u => u.status === 'rejected').length}</span>
+                                </div>
+                            </div>
+                            <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-lg">
+                                    <i className="fa-solid fa-user-check"></i>
+                                </div>
+                                <div>
+                                    <span className="text-xs text-emerald-300/80 block">حسابات معتمدة</span>
+                                    <span className="text-lg font-extrabold text-emerald-300">{profiles.filter(u => u.status === 'active').length}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Search & Filters */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-900/80 p-3.5 border border-slate-800 rounded-2xl">
+                            <div className="relative">
+                                <i className="fa-solid fa-magnifying-glass absolute top-1/2 -translate-y-1/2 start-3 text-slate-500 text-xs"></i>
+                                <input
+                                    type="text"
+                                    value={reqSearch}
+                                    onChange={(e) => setReqSearch(e.target.value)}
+                                    placeholder="بحث بالاسم، البريد، الجوال، أو الملاحظات..."
+                                    className={`${inputClass} ps-8 text-xs`}
+                                />
+                            </div>
+                            <div>
+                                <select
+                                    value={reqStatusFilter}
+                                    onChange={(e) => setReqStatusFilter(e.target.value)}
+                                    className={`${inputClass} text-xs`}
+                                >
+                                    <option value="all">كل طلبات التسجيل (معلقة، استكمال، مرفوضة)</option>
+                                    <option value="pending">بانتظار المراجعة والاعتماد</option>
+                                    <option value="needs_info">بانتظار استكمال البيانات</option>
+                                    <option value="rejected">الطلبات المرفوضة</option>
+                                    <option value="active">الطلبات المعتمدة والنشطة</option>
+                                </select>
+                            </div>
+                            <div>
+                                <select
+                                    value={reqOrgFilter}
+                                    onChange={(e) => setReqOrgFilter(e.target.value)}
+                                    className={`${inputClass} text-xs`}
+                                >
+                                    <option value="all">كل الجهات</option>
+                                    {ORG_LIST.map(o => <option key={o.code} value={o.code}>{o.label}</option>)}
+                                </select>
+                            </div>
+                        </div>
+
+                        {/* Requests Table */}
+                        <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-md">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <caption className="sr-only">طلبات تسجيل الحسابات الجديدة</caption>
+                                    <thead>
+                                        <tr className="border-b border-slate-800 text-slate-400 bg-slate-950/40 text-xs">
+                                            <th scope="col" className="p-4 font-bold text-start">مقدم الطلب</th>
+                                            <th scope="col" className="p-4 font-bold text-start">الجهة والمنصب</th>
+                                            <th scope="col" className="p-4 font-bold text-start">الملاحظات</th>
+                                            <th scope="col" className="p-4 font-bold text-start">الحالة</th>
+                                            <th scope="col" className="p-4 font-bold text-start">سجل المراجعة</th>
+                                            <th scope="col" className="p-4 font-bold text-center no-print">الإجراءات</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-800/60">
+                                        {filteredRequests.length === 0 ? (
+                                            <tr>
+                                                <td colSpan="6" className="p-8 text-center text-slate-500 text-xs">
+                                                    لا توجد طلبات تسجيل مطابقة لمعايير البحث
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            filteredRequests.map(u => {
+                                                const status = lookup(USER_STATUS, u.status, 'pending');
+                                                return (
+                                                    <tr key={u.id} className="hover:bg-slate-800/30">
+                                                        <td className="p-4">
+                                                            <div className="flex items-center gap-3">
+                                                                <Avatar name={u.name} size="w-9 h-9 text-xs" />
+                                                                <div className="min-w-0">
+                                                                    <span className="font-bold text-white block truncate">{u.name}</span>
+                                                                    <span className="text-xs text-slate-400 font-mono block truncate" dir="ltr">{u.email}</span>
+                                                                    {u.mobile && (
+                                                                        <span className="text-xs text-slate-500 font-mono flex items-center gap-1 mt-0.5" dir="ltr">
+                                                                            <i className="fa-solid fa-phone text-[10px] text-slate-600"></i>
+                                                                            <span>{u.mobile}</span>
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                        <td className="p-4">
+                                                            <OrgChip code={u.org} />
+                                                            <span className="text-xs text-slate-400 block mt-1">
+                                                                {u.position || '—'}
+                                                            </span>
+                                                        </td>
+                                                        <td className="p-4 max-w-xs">
+                                                            {u.request_notes ? (
+                                                                <span className="text-xs text-slate-300 line-clamp-2" title={u.request_notes}>
+                                                                    {u.request_notes}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-xs text-slate-600">لا توجد ملاحظات</span>
+                                                            )}
+                                                            {u.rejection_reason && (
+                                                                <span className="text-[11px] text-rose-300 block mt-1 font-semibold">
+                                                                    سبب الرفض: {u.rejection_reason}
+                                                                </span>
+                                                            )}
+                                                            {u.request_info_note && (
+                                                                <span className="text-[11px] text-sky-300 block mt-1 font-semibold">
+                                                                    ملاحظة الاستكمال: {u.request_info_note}
+                                                                </span>
+                                                            )}
+                                                        </td>
+                                                        <td className="p-4">
+                                                            <Chip className={status.chip}>{status.label}</Chip>
+                                                            <span className="text-[10px] text-slate-500 block mt-1">
+                                                                {formatDateTime(u.created_at)}
+                                                            </span>
+                                                        </td>
+                                                        <td className="p-4 text-xs text-slate-400">
+                                                            {u.approved_by_name ? (
+                                                                <div>
+                                                                    <span className="text-emerald-400 font-bold block">معتمد</span>
+                                                                    <span>بواسطة {u.approved_by_name}</span>
+                                                                </div>
+                                                            ) : u.reviewed_by_name ? (
+                                                                <div>
+                                                                    <span className="text-blue-400 font-bold block">تمت المراجعة</span>
+                                                                    <span>بواسطة {u.reviewed_by_name}</span>
+                                                                </div>
+                                                            ) : (
+                                                                <span className="text-slate-600">بانتظار المراجعة</span>
+                                                            )}
+                                                        </td>
+                                                        <td className="p-4 no-print">
+                                                            <div className="flex items-center justify-center gap-1.5">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setDetailsModalUser(u)}
+                                                                    title="عرض كامل تفاصيل الطلب"
+                                                                    className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs"
+                                                                >
+                                                                    <i className="fa-solid fa-eye"></i>
+                                                                </button>
+                                                                {mayApproveRequests && (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => setApproveModalUser(u)}
+                                                                        title="اعتماد وتفعيل الحساب وتحديد الصلاحيات"
+                                                                        className="p-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 rounded-lg text-xs"
+                                                                    >
+                                                                        <i className="fa-solid fa-user-check"></i>
+                                                                    </button>
+                                                                )}
+                                                                {mayReviewRequests && u.status !== 'active' && (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => setRequestInfoModalUser(u)}
+                                                                        title="طلب استكمال البيانات من المستخدم"
+                                                                        className="p-2 bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 rounded-lg text-xs"
+                                                                    >
+                                                                        <i className="fa-solid fa-comment-dots"></i>
+                                                                    </button>
+                                                                )}
+                                                                {mayRejectRequests && u.status !== 'rejected' && (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => setRejectModalUser(u)}
+                                                                        title="رفض طلب التسجيل مع ذكر السبب"
+                                                                        className="p-2 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 rounded-lg text-xs"
+                                                                    >
+                                                                        <i className="fa-solid fa-user-xmark"></i>
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Modals */}
+                <ApproveRegistrationModal
+                    open={!!approveModalUser}
+                    user={approveModalUser}
+                    api={api}
+                    onClose={() => setApproveModalUser(null)}
+                    onSuccess={refresh}
+                    toast={toast}
+                />
+                <RejectRegistrationModal
+                    open={!!rejectModalUser}
+                    user={rejectModalUser}
+                    api={api}
+                    onClose={() => setRejectModalUser(null)}
+                    onSuccess={refresh}
+                    toast={toast}
+                />
+                <RequestInfoRegistrationModal
+                    open={!!requestInfoModalUser}
+                    user={requestInfoModalUser}
+                    api={api}
+                    onClose={() => setRequestInfoModalUser(null)}
+                    onSuccess={refresh}
+                    toast={toast}
+                />
+                <RegistrationDetailsModal
+                    open={!!detailsModalUser}
+                    user={detailsModalUser}
+                    onClose={() => setDetailsModalUser(null)}
+                    onApprove={(u) => setApproveModalUser(u)}
+                    onReject={(u) => setRejectModalUser(u)}
+                    onRequestInfo={(u) => setRequestInfoModalUser(u)}
+                />
             </div>
         );
     }
+
 
     function ChangePasswordModal({ open, api, onClose, toast }) {
         const [currentPassword, setCurrentPassword] = useState('');
@@ -4917,7 +5890,7 @@
                                           onConnect={onConnect} toast={toast} />
                 )}
                 {section === 'users' && mayManageUsers && (
-                    <UsersScreen data={data} profile={profile} onEdit={onEditUser} onDelete={onDeleteUser} onInvite={onInviteUser} onResetPassword={onResetPasswordUser} onApprove={onApproveUser} />
+                    <UsersScreen data={data} profile={profile} settings={settings} onSave={onSave} saving={saving} api={api} refresh={refresh} toast={toast} onEdit={onEditUser} onDelete={onDeleteUser} onInvite={onInviteUser} onResetPassword={onResetPasswordUser} onApprove={onApproveUser} />
                 )}
             </div>
         );
