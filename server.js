@@ -969,16 +969,20 @@ app.post('/api/profiles/:id/approve', requireActive, async (req, res, next) => {
       'Reports.View': true
     };
     const newRole = req.body.role || target.role || 'user';
+    const newPosition = req.body.position !== undefined ? (String(req.body.position || '').trim() || null) : target.position;
+    const newDepartment = req.body.department !== undefined ? (String(req.body.department || '').trim() || null) : target.department;
+    const newTeam = req.body.team !== undefined ? (String(req.body.team || '').trim() || null) : target.team;
     const newDataScope = req.body.data_scope || target.data_scope || 'my_data';
     const permissions = newRole === 'admin' ? ALL_PERMISSIONS : defaultPerms;
     const { rows } = await client.query(
-      `update profiles set status='active', role=$1, permissions=$2, data_scope=$3, updated_at=now() where id=$4 returning *`,
-      [newRole, JSON.stringify(permissions), newDataScope, targetId]
+      `update profiles set status='active', role=$1, position=$2, department=$3, team=$4, permissions=$5, data_scope=$6, updated_at=now() where id=$7 returning *`,
+      [newRole, newPosition, newDepartment, newTeam, JSON.stringify(permissions), newDataScope, targetId]
     );
     await writeAudit(client, req, `اعتماد وتفعيل حساب المستخدم: ${target.name}`, 'UPDATE', 'profiles', targetId, {
       previous_status: target.status,
       new_status: 'active',
       role: newRole,
+      position: newPosition,
       data_scope: newDataScope
     });
     await client.query('commit');

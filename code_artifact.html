@@ -1675,16 +1675,11 @@
                                 <Field label="الاسم الكامل" required>
                                     <input className={inputClass} value={form.name} onChange={set('name')} required autoComplete="name" />
                                 </Field>
-                                <div className="grid grid-cols-2 gap-3">
-                                    <Field label="الجهة" required>
-                                        <select className={inputClass} value={form.org} onChange={set('org')}>
-                                            {ORG_LIST.map(o => <option key={o.code} value={o.code}>{o.label}</option>)}
-                                        </select>
-                                    </Field>
-                                    <Field label="المنصب">
-                                        <input className={inputClass} value={form.position} onChange={set('position')} placeholder="مثال: مدير مشروع" />
-                                    </Field>
-                                </div>
+                                <Field label="الجهة" required>
+                                    <select className={inputClass} value={form.org} onChange={set('org')}>
+                                        {ORG_LIST.map(o => <option key={o.code} value={o.code}>{o.label}</option>)}
+                                    </select>
+                                </Field>
                             </React.Fragment>
                         )}
 
