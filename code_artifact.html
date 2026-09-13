@@ -250,16 +250,26 @@
     const ORG_LIST = Object.values(ORGS);
 
     const ROLES = {
-        admin:              { code: 'admin',              label: 'مدير نظام',       hint: 'صلاحيات كاملة', chip: 'bg-purple-950 text-purple-300 border-purple-500/40' },
-        supervisor:         { code: 'supervisor',         label: 'مشرف',            hint: 'إشراف تشغيلي', chip: 'bg-blue-950 text-blue-300 border-blue-500/40' },
-        project_manager:    { code: 'project_manager',    label: 'مدير مشروع',      hint: 'إدارة المشروع', chip: 'bg-cyan-950 text-cyan-300 border-cyan-500/40' },
-        department_manager: { code: 'department_manager', label: 'مدير إدارة',      hint: 'إدارة القسم', chip: 'bg-indigo-950 text-indigo-300 border-indigo-500/40' },
-        team_lead:          { code: 'team_lead',          label: 'قائد فريق',       hint: 'إدارة الفريق', chip: 'bg-sky-950 text-sky-300 border-sky-500/40' },
-        user:               { code: 'user',               label: 'موظف',            hint: 'تنفيذ المهام', chip: 'bg-slate-800 text-slate-300 border-slate-600/40' },
-        reviewer:           { code: 'reviewer',           label: 'مراجع',           hint: 'مراجعة الأعمال', chip: 'bg-amber-950 text-amber-300 border-amber-500/40' },
-        approver:           { code: 'approver',           label: 'معتمد',           hint: 'اعتماد الأعمال', chip: 'bg-emerald-950 text-emerald-300 border-emerald-500/40' },
-        read_only:          { code: 'read_only',          label: 'قراءة فقط',       hint: 'عرض دون تعديل', chip: 'bg-slate-900 text-slate-400 border-slate-600/40' }
+        admin:              { code: 'admin',              label: 'مدير النظام',       hint: 'صلاحيات كاملة على النظام', chip: 'bg-purple-950 text-purple-300 border-purple-500/40', default_package: 'admin_package', default_scope: 'GLOBAL' },
+        project_manager:    { code: 'project_manager',    label: 'مدير مشروع',      hint: 'إدارة مشاريع محددة ومتابعة خططها ومنتجاتها', chip: 'bg-cyan-950 text-cyan-300 border-cyan-500/40', default_package: 'project_manager_package', default_scope: 'PROJECT' },
+        department_manager: { code: 'department_manager', label: 'مدير إدارة',      hint: 'إدارة شاملة للإدارة وتأسيس المشاريع والخطط', chip: 'bg-indigo-950 text-indigo-300 border-indigo-500/40', default_package: 'department_manager_package', default_scope: 'DEPARTMENT' },
+        team_head:          { code: 'team_head',          label: 'رئيس قسم',       hint: 'إدارة القسم وفرقه ومتابعة المهام دون إنشاء مشاريع جديدة', chip: 'bg-sky-950 text-sky-300 border-sky-500/40', default_package: 'team_head_package', default_scope: 'DEPARTMENT' },
+        team_member:        { code: 'team_member',        label: 'موظف قسم',       hint: 'تنفيذ المهام والإجراءات ورفع الملفات والتواصل', chip: 'bg-slate-800 text-slate-300 border-slate-600/40', default_package: 'team_member_package', default_scope: 'ASSIGNED' },
+        // Aliases for backward compatibility
+        user:               { code: 'user',               label: 'موظف قسم',       hint: 'تنفيذ المهام والإجراءات ورفع الملفات والتواصل', chip: 'bg-slate-800 text-slate-300 border-slate-600/40', default_package: 'team_member_package', default_scope: 'ASSIGNED' },
+        team_lead:          { code: 'team_lead',          label: 'رئيس قسم',       hint: 'إدارة القسم وفرقه ومتابعة المهام دون إنشاء مشاريع جديدة', chip: 'bg-sky-950 text-sky-300 border-sky-500/40', default_package: 'team_head_package', default_scope: 'DEPARTMENT' },
+        supervisor:         { code: 'supervisor',         label: 'مشرف',            hint: 'إشراف تشغيلي', chip: 'bg-blue-950 text-blue-300 border-blue-500/40', default_package: 'project_manager_package', default_scope: 'PROJECT' },
+        reviewer:           { code: 'reviewer',           label: 'مراجع',           hint: 'مراجعة الأعمال', chip: 'bg-amber-950 text-amber-300 border-amber-500/40', default_package: 'team_member_package', default_scope: 'ASSIGNED' },
+        approver:           { code: 'approver',           label: 'معتمد',           hint: 'اعتماد الأعمال', chip: 'bg-emerald-950 text-emerald-300 border-emerald-500/40', default_package: 'project_manager_package', default_scope: 'PROJECT' },
+        read_only:          { code: 'read_only',          label: 'قراءة فقط',       hint: 'عرض دون تعديل', chip: 'bg-slate-900 text-slate-400 border-slate-600/40', default_package: 'team_member_package', default_scope: 'ASSIGNED' }
     };
+    const OFFICIAL_ROLES = [
+        ROLES.admin,
+        ROLES.project_manager,
+        ROLES.department_manager,
+        ROLES.team_head,
+        ROLES.team_member
+    ];
     const DATA_SCOPES = {
         my_data: { label: 'بياناتي فقط' }, my_team: { label: 'فريقي' },
         my_department: { label: 'إدارتي' }, my_project: { label: 'مشروعي' }, all_data: { label: 'كل البيانات' }
@@ -556,6 +566,15 @@
                 approve: (id, payload) => request('/profiles/' + encodeURIComponent(id) + '/approve', { method: 'POST', body: JSON.stringify(payload || {}) }),
                 reject: (id, payload) => request('/profiles/' + encodeURIComponent(id) + '/reject', { method: 'POST', body: JSON.stringify(payload || {}) }),
                 requestInfo: (id, payload) => request('/profiles/' + encodeURIComponent(id) + '/request-info', { method: 'POST', body: JSON.stringify(payload || {}) })
+            },
+            permissionPackages: {
+                ...resource('permission-packages'),
+                list: (params) => {
+                    const q = params ? new URLSearchParams(Object.entries(params).filter(([_, v]) => v != null && v !== '')).toString() : '';
+                    return request('/permission-packages' + (q ? '?' + q : ''));
+                },
+                clone: (id, payload) => request('/permission-packages/' + encodeURIComponent(id) + '/clone', { method: 'POST', body: JSON.stringify(payload || {}) }),
+                delete: (id) => request('/permission-packages/' + encodeURIComponent(id), { method: 'DELETE' })
             },
             organizations: {
                 ...resource('organizations'),
@@ -2659,13 +2678,672 @@
         );
     }
 
-    function ApproveRegistrationModal({ open, user, api, onClose, onSuccess, toast }) {
+    const STANDARD_DEPARTMENTS = [
+        'الإعلام الرقمي',
+        'الإنتاج المرئي',
+        'العلاقات العامة',
+        'التسويق والمحتوى',
+        'التصميم الإبداعي',
+        'الترجمة والنشر',
+        'التخطيط والمتابعة',
+        'الشؤون الإدارية والمالية',
+        'تقنية المعلومات'
+    ];
+
+    function EffectivePermissionsPreview({ permissions = {}, adminImplied = false, onToggleOverride, directAllow = {}, directDeny = {}, allowCustomEdit = false }) {
+        const [expandedGroups, setExpandedGroups] = useState({});
+        const toggleGroup = (label) => setExpandedGroups(prev => ({ ...prev, [label]: !prev[label] }));
+        const expandAll = () => {
+            const all = {};
+            PERMISSION_GROUPS.forEach(g => { all[g.label] = true; });
+            setExpandedGroups(all);
+        };
+        const collapseAll = () => setExpandedGroups({});
+
+        const totalGranted = adminImplied ? PERMISSIONS.length : PERMISSIONS.filter(p => !!permissions[p.key]).length;
+
+        return (
+            <div className="border border-slate-800 bg-slate-950/60 rounded-2xl p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-800/80">
+                    <div className="flex items-center gap-2">
+                        <i className="fa-solid fa-shield-halved text-purple-400 text-sm"></i>
+                        <span className="font-bold text-sm text-slate-200">معاينة الصلاحيات الفعلية الممنوحة</span>
+                        <span className="px-2 py-0.5 rounded-full text-xs font-mono bg-purple-950/60 text-purple-300 border border-purple-500/30">
+                            {totalGranted} / {PERMISSIONS.length}
+                        </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs">
+                        <button type="button" onClick={expandAll} className="text-blue-400 hover:text-blue-300">توسيع الكل</button>
+                        <span className="text-slate-600">|</span>
+                        <button type="button" onClick={collapseAll} className="text-slate-400 hover:text-slate-300">طي الكل</button>
+                    </div>
+                </div>
+
+                {adminImplied && (
+                    <div className="p-3 bg-purple-950/40 border border-purple-500/30 rounded-xl text-xs text-purple-300 flex items-center gap-2">
+                        <i className="fa-solid fa-crown text-purple-400"></i>
+                        <span>حساب مدير النظام يملك صلاحيات شاملة تلقائية (GLOBAL Access) على جميع الشاشات والعمليات.</span>
+                    </div>
+                )}
+
+                <div className="space-y-2 max-h-[36vh] overflow-y-auto pe-1">
+                    {PERMISSION_GROUPS.map(group => {
+                        const groupGrantedCount = adminImplied ? group.items.length : group.items.filter(p => !!permissions[p.key]).length;
+                        const isExpanded = !!expandedGroups[group.label];
+                        return (
+                            <div key={group.label} className="border border-slate-800/70 rounded-xl bg-slate-900/50 overflow-hidden">
+                                <button
+                                    type="button"
+                                    onClick={() => toggleGroup(group.label)}
+                                    className="w-full px-3.5 py-2.5 flex items-center justify-between text-start hover:bg-slate-800/40 transition"
+                                >
+                                    <div className="flex items-center gap-2">
+                                        <i className={`fa-solid fa-chevron-${isExpanded ? 'up' : 'down'} text-[11px] text-slate-500`}></i>
+                                        <span className="text-xs font-bold text-slate-200">{group.label}</span>
+                                    </div>
+                                    <span className={`px-2 py-0.5 rounded-md text-[11px] font-bold ${
+                                        groupGrantedCount === group.items.length
+                                            ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-500/30'
+                                            : groupGrantedCount > 0
+                                                ? 'bg-blue-950/60 text-blue-300 border border-blue-500/30'
+                                                : 'bg-slate-800 text-slate-400'
+                                    }`}>
+                                        {groupGrantedCount} من {group.items.length}
+                                    </span>
+                                </button>
+                                {isExpanded && (
+                                    <div className="p-3 pt-1 border-t border-slate-800/60 grid sm:grid-cols-2 gap-2 bg-slate-950/30">
+                                        {group.items.map(p => {
+                                            const isGranted = adminImplied || !!permissions[p.key];
+                                            return (
+                                                <div key={p.key} className={`flex items-center justify-between p-2 rounded-lg text-xs ${
+                                                    isGranted ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-200' : 'bg-slate-900/30 text-slate-500 border border-transparent'
+                                                }`}>
+                                                    <div className="flex items-center gap-2 truncate">
+                                                        <i className={`fa-solid ${isGranted ? 'fa-check text-emerald-400' : 'fa-xmark text-slate-600'} text-[11px]`}></i>
+                                                        <span className="truncate">{p.label}</span>
+                                                    </div>
+                                                    {allowCustomEdit && !adminImplied && onToggleOverride && (
+                                                        <label className="flex items-center gap-1 cursor-pointer shrink-0 ms-2">
+                                                            <input
+                                                                type="checkbox"
+                                                                className="accent-purple-500 w-3.5 h-3.5"
+                                                                checked={isGranted}
+                                                                onChange={(e) => onToggleOverride(p.key, e.target.checked)}
+                                                            />
+                                                        </label>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        );
+    }
+
+    function UserScopeAndPermissionsEditor({ form, setForm, data, isInvite = false }) {
+        const [projectSearch, setProjectSearch] = useState('');
+        const [showCustomOverrides, setShowCustomOverrides] = useState(false);
+
+        const packages = data?.permissionPackages || [];
+        const projects = data?.projects || [];
+
+        const selectedPackage = packages.find(p => p.id === form.package_id) || packages.find(p => p.code === ROLES[form.role]?.default_package);
+        const defaultPackageForRole = packages.find(p => p.is_default_for_role === form.role) || packages.find(p => p.code === ROLES[form.role]?.default_package);
+
+        const isPackageOverridden = selectedPackage && defaultPackageForRole && selectedPackage.id !== defaultPackageForRole.id;
+        const adminImplied = form.role === 'admin';
+
+        // Calculate effective permissions
+        const effectivePermissions = useMemo(() => {
+            const base = selectedPackage ? (selectedPackage.permissions || {}) : (form.permissions || {});
+            const result = { ...EMPTY_PERMISSIONS, ...base };
+            // Apply direct overrides
+            if (form.direct_permissions_allow) {
+                if (Array.isArray(form.direct_permissions_allow)) {
+                    form.direct_permissions_allow.forEach(k => { result[k] = true; });
+                } else if (typeof form.direct_permissions_allow === 'object') {
+                    Object.entries(form.direct_permissions_allow).forEach(([k, v]) => { if (v) result[k] = true; });
+                }
+            }
+            if (form.direct_permissions_deny) {
+                if (Array.isArray(form.direct_permissions_deny)) {
+                    form.direct_permissions_deny.forEach(k => { result[k] = false; });
+                } else if (typeof form.direct_permissions_deny === 'object') {
+                    Object.entries(form.direct_permissions_deny).forEach(([k, v]) => { if (v) result[k] = false; });
+                }
+            }
+            return result;
+        }, [selectedPackage, form.permissions, form.direct_permissions_allow, form.direct_permissions_deny]);
+
+        // Keep form.permissions synchronized for backward compatibility
+        useEffect(() => {
+            setForm(prev => ({ ...prev, permissions: effectivePermissions }));
+        }, [effectivePermissions]);
+
+        const handleRoleChange = (roleCode) => {
+            const roleDef = ROLES[roleCode];
+            const defPkg = packages.find(p => p.is_default_for_role === roleCode) || packages.find(p => p.code === roleDef?.default_package);
+            
+            let autoScope = form.scope_type || 'إدارة';
+            if (roleCode === 'project_manager') autoScope = 'مشروع';
+            else if (roleCode === 'department_manager' || roleCode === 'team_head') autoScope = 'إدارة';
+
+            setForm(prev => ({
+                ...prev,
+                role: roleCode,
+                package_id: defPkg ? defPkg.id : prev.package_id,
+                scope_type: autoScope
+            }));
+        };
+
+        const handlePackageChange = (pkgId) => {
+            setForm(prev => ({ ...prev, package_id: pkgId }));
+        };
+
+        const toggleProject = (projId) => {
+            const current = Array.isArray(form.assigned_project_ids) ? [...form.assigned_project_ids] : [];
+            const idx = current.indexOf(projId);
+            if (idx >= 0) current.splice(idx, 1);
+            else current.push(projId);
+            setForm(prev => ({ ...prev, assigned_project_ids: current }));
+        };
+
+        const selectAllProjects = () => {
+            setForm(prev => ({ ...prev, assigned_project_ids: projects.map(p => p.id) }));
+        };
+
+        const clearAllProjects = () => {
+            setForm(prev => ({ ...prev, assigned_project_ids: [] }));
+        };
+
+        const handleToggleDirectOverride = (key, granted) => {
+            const currentAllow = { ...(typeof form.direct_permissions_allow === 'object' && !Array.isArray(form.direct_permissions_allow) ? form.direct_permissions_allow : {}) };
+            const currentDeny = { ...(typeof form.direct_permissions_deny === 'object' && !Array.isArray(form.direct_permissions_deny) ? form.direct_permissions_deny : {}) };
+            
+            const pkgBaseGranted = selectedPackage ? !!(selectedPackage.permissions || {})[key] : false;
+            
+            if (granted) {
+                delete currentDeny[key];
+                if (!pkgBaseGranted) currentAllow[key] = true;
+            } else {
+                delete currentAllow[key];
+                if (pkgBaseGranted) currentDeny[key] = true;
+            }
+
+            setForm(prev => ({
+                ...prev,
+                direct_permissions_allow: currentAllow,
+                direct_permissions_deny: currentDeny
+            }));
+        };
+
+        const filteredProjects = projects.filter(p => {
+            if (!projectSearch.trim()) return true;
+            const q = projectSearch.trim().toLowerCase();
+            return (p.name || '').toLowerCase().includes(q) || (p.code || '').toLowerCase().includes(q);
+        });
+
+        const assignedProjectCount = (form.assigned_project_ids || []).length;
+
+        return (
+            <div className="space-y-4">
+                {/* 1. Operational Scope Section: المشروع أو الإدارة */}
+                <div className="p-4 bg-slate-900/90 border border-slate-800 rounded-2xl space-y-3">
+                    <div className="flex items-center justify-between">
+                        <label className="text-xs font-extrabold text-blue-300 flex items-center gap-2">
+                            <i className="fa-solid fa-arrows-to-dot text-blue-400"></i>
+                            <span>المشروع أو الإدارة (النطاق التشغيلي الأساسي)</span>
+                            <span className="text-rose-400 font-bold">*</span>
+                        </label>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                        <label className={`p-3 rounded-xl border flex items-center gap-3 cursor-pointer transition ${
+                            form.scope_type === 'مشروع'
+                                ? 'bg-purple-950/40 border-purple-500 text-purple-200 shadow-md shadow-purple-950/30'
+                                : 'bg-slate-950/40 border-slate-800 text-slate-300 hover:bg-slate-800/40'
+                        }`}>
+                            <input
+                                type="radio"
+                                name="scope_type_choice"
+                                value="مشروع"
+                                checked={form.scope_type === 'مشروع'}
+                                onChange={() => setForm(prev => ({ ...prev, scope_type: 'مشروع' }))}
+                                className="accent-purple-500 w-4 h-4"
+                            />
+                            <div>
+                                <span className="block font-bold text-xs">مشروع (نطاق مشاريع محددة)</span>
+                                <span className="block text-[10px] text-slate-400 mt-0.5">ربط المستخدم بمشروع أو مشاريع معينة</span>
+                            </div>
+                        </label>
+
+                        <label className={`p-3 rounded-xl border flex items-center gap-3 cursor-pointer transition ${
+                            form.scope_type === 'إدارة' || !form.scope_type
+                                ? 'bg-purple-950/40 border-purple-500 text-purple-200 shadow-md shadow-purple-950/30'
+                                : 'bg-slate-950/40 border-slate-800 text-slate-300 hover:bg-slate-800/40'
+                        }`}>
+                            <input
+                                type="radio"
+                                name="scope_type_choice"
+                                value="إدارة"
+                                checked={form.scope_type === 'إدارة' || !form.scope_type}
+                                onChange={() => setForm(prev => ({ ...prev, scope_type: 'إدارة' }))}
+                                className="accent-purple-500 w-4 h-4"
+                            />
+                            <div>
+                                <span className="block font-bold text-xs">إدارة (نطاق قطاع / إدارة عامة)</span>
+                                <span className="block text-[10px] text-slate-400 mt-0.5">ربط المستخدم بإدارة أو قسم تنفيذي</span>
+                            </div>
+                        </label>
+                    </div>
+
+                    {/* Cascading View: If "مشروع" -> Multi-select projects */}
+                    {form.scope_type === 'مشروع' && (
+                        <div className="pt-2 space-y-2 border-t border-slate-800/80">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <label className="text-xs font-bold text-slate-200 flex items-center gap-2">
+                                    <i className="fa-solid fa-diagram-project text-blue-400"></i>
+                                    <span>اختر المشروع (يمكن اختيار أكثر من مشروع)</span>
+                                    <span className="px-2 py-0.5 rounded-full text-[11px] bg-purple-900/60 text-purple-300 font-mono">
+                                        تم اختيار {assignedProjectCount} مشروع
+                                    </span>
+                                </label>
+                                <div className="flex items-center gap-2 text-xs">
+                                    <button type="button" onClick={selectAllProjects} className="text-blue-400 hover:text-blue-300 font-bold">تحديد الكل</button>
+                                    <span className="text-slate-600">|</span>
+                                    <button type="button" onClick={clearAllProjects} className="text-slate-400 hover:text-slate-300 font-bold">إلغاء التحديد</button>
+                                </div>
+                            </div>
+
+                            {projects.length > 5 && (
+                                <div className="relative">
+                                    <i className="fa-solid fa-magnifying-glass absolute top-1/2 -translate-y-1/2 start-3 text-slate-500 text-xs"></i>
+                                    <input
+                                        type="text"
+                                        value={projectSearch}
+                                        onChange={(e) => setProjectSearch(e.target.value)}
+                                        placeholder="بحث في أسماء المشاريع..."
+                                        className={`${inputClass} ps-8 py-1.5 text-xs`}
+                                    />
+                                </div>
+                            )}
+
+                            <div className="grid sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto p-2 bg-slate-950/50 border border-slate-800 rounded-xl">
+                                {filteredProjects.length === 0 ? (
+                                    <div className="col-span-2 p-3 text-center text-xs text-slate-500">
+                                        لا توجد مشاريع مسجلة في النظام حالياً
+                                    </div>
+                                ) : (
+                                    filteredProjects.map(proj => {
+                                        const isAssigned = (form.assigned_project_ids || []).includes(proj.id);
+                                        return (
+                                            <label
+                                                key={proj.id}
+                                                className={`p-2.5 rounded-xl border flex items-center gap-2.5 cursor-pointer transition text-xs ${
+                                                    isAssigned
+                                                        ? 'bg-blue-950/40 border-blue-500/60 text-blue-200'
+                                                        : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:bg-slate-800/40'
+                                                }`}
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    className="w-4 h-4 accent-purple-500 rounded"
+                                                    checked={isAssigned}
+                                                    onChange={() => toggleProject(proj.id)}
+                                                />
+                                                <div className="min-w-0 flex-1 truncate">
+                                                    <span className="font-bold text-white block truncate">{proj.name}</span>
+                                                    {proj.code && <span className="text-[10px] text-slate-500 font-mono block">{proj.code}</span>}
+                                                </div>
+                                            </label>
+                                        );
+                                    })
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Cascading View: If "إدارة" -> Department selector / input */}
+                    {(form.scope_type === 'إدارة' || !form.scope_type) && (
+                        <div className="pt-2 space-y-2 border-t border-slate-800/80">
+                            <label className="text-xs font-bold text-slate-200 flex items-center gap-2">
+                                <i className="fa-solid fa-building text-blue-400"></i>
+                                <span>اختر الإدارة / القسم</span>
+                                <span className="text-rose-400 font-bold">*</span>
+                            </label>
+                            <div className="grid sm:grid-cols-2 gap-2">
+                                <select
+                                    className={`${inputClass} text-xs`}
+                                    value={STANDARD_DEPARTMENTS.includes(form.department || form.assigned_department) ? (form.department || form.assigned_department) : 'custom'}
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        if (val !== 'custom') {
+                                            setForm(prev => ({ ...prev, department: val, assigned_department: val }));
+                                        }
+                                    }}
+                                >
+                                    <option value="">-- اختر من قائمة الإدارات المعتمدة --</option>
+                                    {STANDARD_DEPARTMENTS.map(dept => (
+                                        <option key={dept} value={dept}>{dept}</option>
+                                    ))}
+                                    <option value="custom">إدارة أخرى (كتابة مخصصة)...</option>
+                                </select>
+
+                                <input
+                                    className={`${inputClass} text-xs`}
+                                    value={form.department || form.assigned_department || ''}
+                                    onChange={(e) => setForm(prev => ({ ...prev, department: e.target.value, assigned_department: e.target.value }))}
+                                    placeholder="أو اكتب اسم الإدارة يدوياً..."
+                                    required={form.scope_type === 'إدارة'}
+                                />
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* 2. Role & Permission Package Binding */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Field label="الدور القيادي / الوظيفي" required>
+                        <select
+                            className={inputClass}
+                            value={form.role}
+                            onChange={(e) => handleRoleChange(e.target.value)}
+                        >
+                            {OFFICIAL_ROLES.map(r => (
+                                <option key={r.code} value={r.code}>
+                                    {r.label} — {r.hint}
+                                </option>
+                            ))}
+                        </select>
+                    </Field>
+
+                    <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                            <label className="text-xs font-extrabold text-slate-300 flex items-center gap-1.5">
+                                <i className="fa-solid fa-layer-group text-purple-400"></i>
+                                <span>باقة الصلاحيات المعينة</span>
+                                <span className="text-rose-400 font-bold">*</span>
+                            </label>
+                            {isPackageOverridden && (
+                                <span className="px-2 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded text-[11px] font-bold flex items-center gap-1">
+                                    <i className="fa-solid fa-triangle-exclamation text-amber-400 text-[10px]"></i>
+                                    <span>الباقة الافتراضية للدور تم تعديلها</span>
+                                </span>
+                            )}
+                        </div>
+                        <select
+                            className={`${inputClass} ${isPackageOverridden ? 'border-amber-500/50 bg-amber-950/20' : ''}`}
+                            value={form.package_id || (selectedPackage ? selectedPackage.id : '')}
+                            onChange={(e) => handlePackageChange(e.target.value)}
+                        >
+                            {packages.length === 0 ? (
+                                <option value="">الباقة الافتراضية ({ROLES[form.role]?.label || form.role})</option>
+                            ) : (
+                                packages.map(pkg => (
+                                    <option key={pkg.id} value={pkg.id}>
+                                        {pkg.name} {pkg.is_default_for_role ? `(افتراضية لـ ${ROLES[pkg.is_default_for_role]?.label || pkg.is_default_for_role})` : ''}
+                                    </option>
+                                ))
+                            )}
+                        </select>
+                        {selectedPackage && selectedPackage.description && (
+                            <p className="text-[11px] text-slate-400 leading-tight pt-0.5">
+                                {selectedPackage.description}
+                            </p>
+                        )}
+                    </div>
+                </div>
+
+                {/* 3. Effective Permissions Preview with Optional Direct Overrides */}
+                <div className="space-y-2">
+                    <EffectivePermissionsPreview
+                        permissions={effectivePermissions}
+                        adminImplied={adminImplied}
+                        allowCustomEdit={showCustomOverrides}
+                        directAllow={form.direct_permissions_allow}
+                        directDeny={form.direct_permissions_deny}
+                        onToggleOverride={handleToggleDirectOverride}
+                    />
+
+                    {!adminImplied && (
+                        <div className="flex items-center justify-between px-1 text-xs">
+                            <button
+                                type="button"
+                                onClick={() => setShowCustomOverrides(prev => !prev)}
+                                className="text-purple-400 hover:text-purple-300 font-bold flex items-center gap-1.5"
+                            >
+                                <i className={`fa-solid ${showCustomOverrides ? 'fa-sliders text-purple-400' : 'fa-gear'}`}></i>
+                                <span>{showCustomOverrides ? 'إخفاء تخصيص الاستثناءات المباشرة' : 'تخصيص استثناءات صلاحيات إضافية مباشرة...'}</span>
+                            </button>
+                            {showCustomOverrides && (
+                                <span className="text-[11px] text-slate-500">
+                                    التعديلات المباشرة تطغى على صلاحيات الباقة المختارة لهذا المستخدم فقط
+                                </span>
+                            )}
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
+    function PermissionPackageModal({ open, initial, isClone = false, api, onClose, onSuccess, toast }) {
         const [form, setForm] = useState({
-            role: 'user',
+            name: '',
+            code: '',
+            description: '',
+            scope_type: 'ASSIGNED',
+            is_default_for_role: 'none',
+            is_active: true,
+            permissions: EMPTY_PERMISSIONS
+        });
+        const [busy, setBusy] = useState(false);
+
+        useEffect(() => {
+            if (!open) return;
+            if (initial) {
+                setForm({
+                    name: isClone ? `${initial.name} (نسخة)` : (initial.name || ''),
+                    code: isClone ? `${initial.code}_copy_${Date.now().toString().slice(-4)}` : (initial.code || ''),
+                    description: initial.description || '',
+                    scope_type: initial.scope_type || 'ASSIGNED',
+                    is_default_for_role: isClone ? 'none' : (initial.is_default_for_role || 'none'),
+                    is_active: initial.is_active !== false,
+                    permissions: { ...EMPTY_PERMISSIONS, ...(initial.permissions || {}) }
+                });
+            } else {
+                setForm({
+                    name: '',
+                    code: '',
+                    description: '',
+                    scope_type: 'ASSIGNED',
+                    is_default_for_role: 'none',
+                    is_active: true,
+                    permissions: EMPTY_PERMISSIONS
+                });
+            }
+        }, [open, initial, isClone]);
+
+        if (!open) return null;
+
+        const set = (key) => (e) => setForm(prev => ({ ...prev, [key]: e.target.value }));
+        const togglePerm = (key) => (e) => setForm(prev => ({
+            ...prev,
+            permissions: { ...prev.permissions, [key]: e.target.checked }
+        }));
+
+        const setGroupPermissions = (group, value) => {
+            const next = { ...form.permissions };
+            group.items.forEach(p => { next[p.key] = value; });
+            setForm(prev => ({ ...prev, permissions: next }));
+        };
+
+        const selectAll = () => {
+            const all = {};
+            PERMISSIONS.forEach(p => { all[p.key] = true; });
+            setForm(prev => ({ ...prev, permissions: all }));
+        };
+
+        const clearAll = () => {
+            setForm(prev => ({ ...prev, permissions: EMPTY_PERMISSIONS }));
+        };
+
+        const handleSubmit = async (e) => {
+            e.preventDefault();
+            if (!form.name.trim() || !form.code.trim()) {
+                toast?.error('يرجى كتابة اسم الباقة وكود الباقة الفريد');
+                return;
+            }
+            setBusy(true);
+            try {
+                const payload = {
+                    name: form.name.trim(),
+                    code: form.code.trim().toLowerCase().replace(/\s+/g, '_'),
+                    description: form.description.trim(),
+                    scope_type: form.scope_type,
+                    is_default_for_role: form.is_default_for_role === 'none' ? null : form.is_default_for_role,
+                    is_active: form.is_active,
+                    permissions: form.permissions
+                };
+
+                if (initial && !isClone) {
+                    await api.permissionPackages.update(initial.id, payload);
+                    toast?.success('تم تحديث باقة الصلاحيات بنجاح');
+                } else {
+                    await api.permissionPackages.create(payload);
+                    toast?.success(isClone ? 'تم استنساخ باقة الصلاحيات بنجاح' : 'تم إنشاء باقة الصلاحيات الجديدة بنجاح');
+                }
+                if (onSuccess) await onSuccess();
+                onClose();
+            } catch (err) {
+                toast?.error(err.message || 'تعذر حفظ باقة الصلاحيات');
+            } finally {
+                setBusy(false);
+            }
+        };
+
+        const grantedCount = PERMISSIONS.filter(p => !!form.permissions[p.key]).length;
+
+        return (
+            <Modal
+                open={open}
+                onClose={onClose}
+                size="xl"
+                title={isClone ? `استنساخ باقة الصلاحيات: ${initial?.name}` : initial ? `تعديل باقة الصلاحيات: ${initial?.name}` : 'إنشاء باقة صلاحيات جديدة'}
+                subtitle="تعريف حزمة صلاحيات نموذجية وتحديد نطاقها التشغيلي ودورها الافتراضي"
+                footer={
+                    <React.Fragment>
+                        <button type="button" onClick={onClose} disabled={busy} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-sm font-bold">إلغاء</button>
+                        <button type="submit" form="package-form" disabled={busy}
+                                className="px-5 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-60 text-white rounded-xl text-sm font-bold shadow-lg shadow-purple-900/30 flex items-center gap-2">
+                            {busy ? <i className="fa-solid fa-circle-notch fa-spin"></i> : <i className="fa-solid fa-floppy-disk"></i>}
+                            <span>{initial && !isClone ? 'حفظ التعديلات' : 'حفظ الباقة الجديدة'}</span>
+                        </button>
+                    </React.Fragment>
+                }
+            >
+                <form id="package-form" onSubmit={handleSubmit} className="space-y-5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <Field label="اسم الباقة" required>
+                            <input className={inputClass} value={form.name} onChange={set('name')} placeholder="مثال: باقة مدير المشاريع الإقليمية" required />
+                        </Field>
+                        <Field label="كود الباقة الفريد" required hint="يُستخدم في النظام البرمجي كمعرف فريد">
+                            <input className={`${inputClass} font-mono text-xs`} value={form.code} onChange={set('code')} dir="ltr" placeholder="e.g. regional_project_manager" required />
+                        </Field>
+                        <Field label="النطاق التشغيلي الأساسي" required>
+                            <select className={inputClass} value={form.scope_type} onChange={set('scope_type')}>
+                                <option value="GLOBAL">شامل (GLOBAL) — لكافة النظام</option>
+                                <option value="PROJECT">مشاريع (PROJECT) — مقيد بالمشاريع المسندة</option>
+                                <option value="DEPARTMENT">إدارات (DEPARTMENT) — مقيد بالإدارة/القسم</option>
+                                <option value="ASSIGNED">مسند فقط (ASSIGNED) — المهام والإجراءات المسندة</option>
+                            </select>
+                        </Field>
+                        <Field label="تعيين كباقة افتراضية للدور">
+                            <select className={inputClass} value={form.is_default_for_role} onChange={set('is_default_for_role')}>
+                                <option value="none">-- غير مرتبطة بدور محدد كافتراضية --</option>
+                                {OFFICIAL_ROLES.map(r => (
+                                    <option key={r.code} value={r.code}>
+                                        {r.label} ({r.code})
+                                    </option>
+                                ))}
+                            </select>
+                        </Field>
+                        <div className="sm:col-span-2">
+                            <Field label="وصف الباقة واستخداماتها">
+                                <textarea className={`${inputClass} h-16`} value={form.description} onChange={set('description')} placeholder="شرح مبسط للأدوار والمهام الموجهة لهذه الباقة..." />
+                            </Field>
+                        </div>
+                    </div>
+
+                    {/* Permissions Selector */}
+                    <div className="border border-slate-800 rounded-2xl p-4 bg-slate-950/60 space-y-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-800">
+                            <div className="flex items-center gap-2">
+                                <i className="fa-solid fa-list-check text-purple-400"></i>
+                                <span className="font-bold text-sm text-slate-200">صلاحيات الباقة ({grantedCount} من {PERMISSIONS.length})</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs">
+                                <button type="button" onClick={selectAll} className="text-purple-400 hover:text-purple-300 font-bold">تحديد كل صلاحيات الباقة</button>
+                                <span className="text-slate-600">|</span>
+                                <button type="button" onClick={clearAll} className="text-slate-400 hover:text-slate-300 font-bold">إلغاء تحديد الكل</button>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[45vh] overflow-y-auto pe-1">
+                            {PERMISSION_GROUPS.map(group => {
+                                const groupGranted = group.items.filter(p => !!form.permissions[p.key]).length;
+                                return (
+                                    <div key={group.label} className="border border-slate-800 rounded-xl p-3 bg-slate-900/60 space-y-2.5">
+                                        <div className="flex items-center justify-between border-b border-slate-800/80 pb-1.5">
+                                            <span className="text-xs font-bold text-blue-300">{group.label}</span>
+                                            <div className="flex items-center gap-2 text-[11px]">
+                                                <button type="button" onClick={() => setGroupPermissions(group, true)} className="text-blue-400 hover:text-blue-300 font-semibold">تحديد القسم</button>
+                                                <span className="text-slate-600">·</span>
+                                                <button type="button" onClick={() => setGroupPermissions(group, false)} className="text-slate-400 hover:text-slate-300 font-semibold">إلغاء</button>
+                                            </div>
+                                        </div>
+                                        <div className="space-y-1.5">
+                                            {group.items.map(p => (
+                                                <label key={p.key} className="flex items-center gap-2 cursor-pointer text-xs text-slate-200 hover:text-white p-1 rounded hover:bg-slate-800/40">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="w-4 h-4 accent-purple-500 rounded"
+                                                        checked={!!form.permissions[p.key]}
+                                                        onChange={togglePerm(p.key)}
+                                                    />
+                                                    <span>{p.label}</span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </form>
+            </Modal>
+        );
+    }
+
+    function ApproveRegistrationModal({ open, user, data, api, onClose, onSuccess, toast }) {
+        const [form, setForm] = useState({
+            role: 'team_member',
             org: 'wamy',
             position: '',
             department: '',
             team: '',
+            scope_type: 'إدارة',
+            assigned_project_ids: [],
+            assigned_department: '',
+            package_id: null,
+            direct_permissions_allow: {},
+            direct_permissions_deny: {},
             data_scope: 'my_data',
             permissions: EMPTY_PERMISSIONS
         });
@@ -2673,34 +3351,30 @@
 
         useEffect(() => {
             if (!open || !user) return;
+            const initRole = user.role && user.role !== 'guest' ? (user.role === 'user' ? 'team_member' : user.role) : 'team_member';
+            const packages = data?.permissionPackages || [];
+            const defPkg = packages.find(p => p.is_default_for_role === initRole) || packages.find(p => p.code === ROLES[initRole]?.default_package);
+
             setForm({
-                role: user.role && user.role !== 'guest' ? user.role : 'user',
+                role: initRole,
                 org: user.org || 'wamy',
                 position: user.position || '',
                 department: user.department || '',
                 team: user.team || '',
+                scope_type: user.scope_type || (initRole === 'project_manager' ? 'مشروع' : 'إدارة'),
+                assigned_project_ids: Array.isArray(user.assigned_project_ids) ? user.assigned_project_ids : [],
+                assigned_department: user.assigned_department || user.department || '',
+                package_id: user.package_id || (defPkg ? defPkg.id : null),
+                direct_permissions_allow: user.direct_permissions_allow || {},
+                direct_permissions_deny: user.direct_permissions_deny || {},
                 data_scope: user.data_scope || 'my_data',
                 permissions: { ...EMPTY_PERMISSIONS, ...(user.permissions || {}) }
             });
-        }, [open, user]);
+        }, [open, user, data]);
 
         if (!open || !user) return null;
 
         const set = (key) => (e) => setForm(prev => ({ ...prev, [key]: e.target.value }));
-        const togglePermission = (key) => (e) =>
-            setForm(prev => ({ ...prev, permissions: { ...prev.permissions, [key]: e.target.checked } }));
-
-        const selectAllPermissions = () => {
-            const all = {};
-            PERMISSIONS.forEach(p => { all[p.key] = true; });
-            setForm(prev => ({ ...prev, permissions: all }));
-        };
-
-        const clearAllPermissions = () => {
-            setForm(prev => ({ ...prev, permissions: EMPTY_PERMISSIONS }));
-        };
-
-        const adminImplied = form.role === 'admin';
 
         const handleSubmit = async (e) => {
             e.preventDefault();
@@ -2710,23 +3384,29 @@
                     role: form.role,
                     org: form.org,
                     position: form.position,
-                    department: form.department,
+                    department: form.department || form.assigned_department,
                     team: form.team,
+                    scope_type: form.scope_type,
+                    assigned_project_ids: form.assigned_project_ids,
+                    assigned_department: form.assigned_department || form.department,
+                    package_id: form.package_id,
+                    direct_permissions_allow: form.direct_permissions_allow,
+                    direct_permissions_deny: form.direct_permissions_deny,
                     data_scope: form.data_scope,
                     permissions: form.permissions
                 });
-                toast.success(`تم اعتماد وتفعيل حساب ${user.name} بنجاح`);
-                if (onSuccess) onSuccess();
+                toast?.success(`تم اعتماد وتفعيل حساب ${user.name} بنجاح وتعيين باقة الصلاحيات والنطاق التشغيلي`);
+                if (onSuccess) await onSuccess();
                 onClose();
             } catch (err) {
-                toast.error(err.message || 'تعذّر اعتماد الحساب');
+                toast?.error(err.message || 'تعذّر اعتماد الحساب');
             } finally {
                 setBusy(false);
             }
         };
 
         return (
-            <Modal open={open} onClose={onClose} size="lg"
+            <Modal open={open} onClose={onClose} size="xl"
                    title="اعتماد وتفعيل حساب المستخدم"
                    subtitle={`${user.name} (${user.email})`}
                    footer={
@@ -2742,7 +3422,7 @@
                 <form id="approve-registration-form" onSubmit={handleSubmit} className="space-y-4">
                     <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-200 text-xs flex items-center gap-2">
                         <i className="fa-solid fa-shield-halved text-emerald-400 text-base"></i>
-                        <span>عند اعتماد هذا الحساب، ستصبح حالته «نشط» وسيحصل فوراً على الدور والصلاحيات المحددة أدناه.</span>
+                        <span>عند اعتماد هذا الحساب، ستصبح حالته «نشط» وسيرتبط فوراً بباقة الصلاحيات والنطاق التشغيلي المحددين أدناه.</span>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -2762,24 +3442,11 @@
                                 {ORG_LIST.map(o => <option key={o.code} value={o.code}>{o.label}</option>)}
                             </select>
                         </Field>
-                        <Field label="الدور القيادي / الوظيفي" required>
-                            <select className={inputClass} value={form.role} onChange={set('role')}>
-                                {Object.values(ROLES).map(r => <option key={r.code} value={r.code}>{r.label} — {r.hint}</option>)}
-                            </select>
-                        </Field>
                         <Field label="المنصب / المسمى الوظيفي">
                             <input className={inputClass} value={form.position} onChange={set('position')} placeholder="مثال: منسق إعلامي، مصمم..." />
                         </Field>
-                        <Field label="الإدارة / القسم">
-                            <input className={inputClass} value={form.department} onChange={set('department')} placeholder="مثال: إدارة الإنتاج، إدارة النشر..." />
-                        </Field>
                         <Field label="الفريق / الوحدة">
                             <input className={inputClass} value={form.team} onChange={set('team')} placeholder="مثال: فريق الرصد، فريق التصميم..." />
-                        </Field>
-                        <Field label="نطاق البيانات" required>
-                            <select className={inputClass} value={form.data_scope} onChange={set('data_scope')}>
-                                {Object.entries(DATA_SCOPES).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}
-                            </select>
                         </Field>
                     </div>
 
@@ -2790,39 +3457,13 @@
                         </div>
                     )}
 
-                    <fieldset className="border border-slate-800 rounded-xl p-4 space-y-4 max-h-[40vh] overflow-y-auto">
-                        <div className="flex items-center justify-between">
-                            <legend className="px-2 text-sm font-bold text-slate-300">الصلاحيات الممنوحة</legend>
-                            {!adminImplied && (
-                                <div className="flex items-center gap-2 text-xs">
-                                    <button type="button" onClick={selectAllPermissions} className="text-purple-400 hover:text-purple-300 font-bold">تحديد الكل</button>
-                                    <span className="text-slate-600">|</span>
-                                    <button type="button" onClick={clearAllPermissions} className="text-slate-400 hover:text-slate-300 font-bold">إلغاء التحديد</button>
-                                </div>
-                            )}
-                        </div>
-                        {adminImplied && (
-                            <p className="text-xs text-purple-300 bg-purple-950/40 border border-purple-500/30 rounded-lg p-2.5">
-                                دور مدير النظام يملك جميع الصلاحيات تلقائياً؛ خيارات الصلاحيات الفردية معطّلة.
-                            </p>
-                        )}
-                        {PERMISSION_GROUPS.map(group => (
-                            <div key={group.label}>
-                                <h4 className="text-xs font-extrabold text-blue-300 mb-2">{group.label}</h4>
-                                <div className="grid sm:grid-cols-2 gap-2">
-                                    {group.items.map(p => (
-                                        <label key={p.key} className="flex items-center gap-2 cursor-pointer text-sm text-slate-200">
-                                            <input type="checkbox" className="w-4 h-4 accent-purple-500 disabled:opacity-40"
-                                                   checked={adminImplied || !!form.permissions[p.key]}
-                                                   disabled={adminImplied}
-                                                   onChange={togglePermission(p.key)} />
-                                            <span>{p.label}</span>
-                                        </label>
-                                    ))}
-                                </div>
-                            </div>
-                        ))}
-                    </fieldset>
+                    {/* Scope & Permissions Editor */}
+                    <UserScopeAndPermissionsEditor
+                        form={form}
+                        setForm={setForm}
+                        data={data}
+                        isInvite={false}
+                    />
                 </form>
             </Modal>
         );
@@ -3069,7 +3710,7 @@
     }
 
     function UsersScreen({ data, profile, settings, onSave, saving, api, refresh, toast, onEdit, onDelete, onInvite, onResetPassword, onApprove }) {
-        const { profiles = [] } = data;
+        const { profiles = [], permissionPackages = [], projects = [] } = data;
         const [activeSubTab, setActiveSubTab] = useState('users');
         const [userSearch, setUserSearch] = useState('');
         const [userOrgFilter, setUserOrgFilter] = useState('all');
@@ -3080,11 +3721,17 @@
         const [reqOrgFilter, setReqOrgFilter] = useState('all');
         const [reqStatusFilter, setReqStatusFilter] = useState('all');
 
+        const [pkgSearch, setPkgSearch] = useState('');
+        const [pkgScopeFilter, setPkgScopeFilter] = useState('all');
+
         // Review Modals State
         const [approveModalUser, setApproveModalUser] = useState(null);
         const [rejectModalUser, setRejectModalUser] = useState(null);
         const [requestInfoModalUser, setRequestInfoModalUser] = useState(null);
         const [detailsModalUser, setDetailsModalUser] = useState(null);
+
+        // Package Modal State
+        const [packageModal, setPackageModal] = useState(null);
 
         // Public Signup Toggle State
         const [togglingSignup, setTogglingSignup] = useState(false);
@@ -3095,6 +3742,7 @@
         const mayApproveRequests = isAdmin(profile) || can(profile, 'Users.Approve') || can(profile, 'Security.Users');
         const mayRejectRequests = isAdmin(profile) || can(profile, 'Users.Reject') || can(profile, 'Security.Users');
         const mayEdit = isAdmin(profile) || can(profile, 'Settings.Users');
+        const mayManagePackages = isAdmin(profile) || can(profile, 'Settings.Roles') || can(profile, 'Settings.Permissions');
         const mayDelete = isAdmin(profile);
         const mayResetPw = isAdmin(profile);
 
@@ -3116,6 +3764,21 @@
             }
         };
 
+        const handleDeletePackage = async (pkg) => {
+            if (pkg.is_system) {
+                toast?.error('لا يمكن حذف باقات الصلاحيات الأساسية للنظام');
+                return;
+            }
+            if (!window.confirm(`هل أنت متأكد من حذف باقة الصلاحيات «${pkg.name}»؟`)) return;
+            try {
+                await api.permissionPackages.delete(pkg.id);
+                toast?.success('تم حذف باقة الصلاحيات بنجاح');
+                if (refresh) await refresh();
+            } catch (err) {
+                toast?.error(err.message || 'تعذر حذف باقة الصلاحيات');
+            }
+        };
+
         // Separate user list vs registration requests
         const pendingRequests = profiles.filter(u => u.status === 'pending');
         const allRegistrationRequests = profiles.filter(u => ['pending', 'needs_info', 'rejected'].includes(u.status) || u.request_notes);
@@ -3130,7 +3793,8 @@
                 const matchName = (u.name || '').toLowerCase().includes(q);
                 const matchEmail = (u.email || '').toLowerCase().includes(q);
                 const matchPos = (u.position || '').toLowerCase().includes(q);
-                if (!matchName && !matchEmail && !matchPos) return false;
+                const matchDept = (u.department || u.assigned_department || '').toLowerCase().includes(q);
+                if (!matchName && !matchEmail && !matchPos && !matchDept) return false;
             }
             return true;
         });
@@ -3149,16 +3813,40 @@
             return true;
         });
 
+        // Filtered packages list
+        const filteredPackages = permissionPackages.filter(pkg => {
+            if (pkgScopeFilter !== 'all' && pkg.scope_type !== pkgScopeFilter) return false;
+            if (pkgSearch.trim()) {
+                const q = pkgSearch.trim().toLowerCase();
+                const matchName = (pkg.name || '').toLowerCase().includes(q);
+                const matchCode = (pkg.code || '').toLowerCase().includes(q);
+                const matchDesc = (pkg.description || '').toLowerCase().includes(q);
+                if (!matchName && !matchCode && !matchDesc) return false;
+            }
+            return true;
+        });
+
         return (
             <div className="space-y-6">
                 <SectionHeading icon="fa-users-gear" title="إدارة المستخدمين والصلاحيات"
-                                description="إدارة حسابات الفريق، مراجعة طلبات التسجيل، وتحديد الصلاحيات التشغيلية بدقة.">
-                    {isAdmin(profile) && (
-                        <button onClick={() => onInvite(null)} className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-sm font-bold shadow-lg shadow-purple-900/30 flex items-center gap-2">
-                            <i className="fa-solid fa-user-plus"></i>
-                            <span>إضافة مستخدم ودعوته</span>
-                        </button>
-                    )}
+                                description="إدارة حسابات الفريق، مراجعة طلبات التسجيل، وتحديد باقات الصلاحيات والنطاق التشغيلي بدقة.">
+                    <div className="flex items-center gap-2">
+                        {mayManagePackages && (
+                            <button
+                                onClick={() => setPackageModal({ open: true, initial: null, isClone: false })}
+                                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold flex items-center gap-2"
+                            >
+                                <i className="fa-solid fa-plus text-purple-400"></i>
+                                <span>إضافة باقة صلاحيات</span>
+                            </button>
+                        )}
+                        {isAdmin(profile) && (
+                            <button onClick={() => onInvite(null)} className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-sm font-bold shadow-lg shadow-purple-900/30 flex items-center gap-2">
+                                <i className="fa-solid fa-user-plus"></i>
+                                <span>إضافة مستخدم ودعوته</span>
+                            </button>
+                        )}
+                    </div>
                 </SectionHeading>
 
                 {/* Public Registration Settings Card */}
@@ -3201,8 +3889,8 @@
                     </div>
                 </div>
 
-                {/* Sub-Tabs: Users List vs Registration Requests */}
-                <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
+                {/* Sub-Tabs: Users List vs Registration Requests vs Permission Packages */}
+                <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-2">
                     <button
                         type="button"
                         onClick={() => setActiveSubTab('users')}
@@ -3239,6 +3927,21 @@
                             </span>
                         )}
                     </button>
+                    <button
+                        type="button"
+                        onClick={() => setActiveSubTab('packages')}
+                        className={`px-4 py-2.5 rounded-xl text-sm font-bold transition flex items-center gap-2 ${
+                            activeSubTab === 'packages'
+                                ? 'bg-purple-600 text-white shadow-md shadow-purple-900/30'
+                                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                        }`}
+                    >
+                        <i className="fa-solid fa-layer-group"></i>
+                        <span>باقات الصلاحيات</span>
+                        <span className="px-2 py-0.5 rounded-full text-xs bg-slate-900/60 border border-slate-700/50">
+                            {permissionPackages.length}
+                        </span>
+                    </button>
                 </div>
 
                 {/* TAB 1: USERS LIST */}
@@ -3252,7 +3955,7 @@
                                     type="text"
                                     value={userSearch}
                                     onChange={(e) => setUserSearch(e.target.value)}
-                                    placeholder="بحث بالاسم أو البريد..."
+                                    placeholder="بحث بالاسم، البريد، أو الإدارة..."
                                     className={`${inputClass} ps-8 text-xs`}
                                 />
                             </div>
@@ -3272,8 +3975,8 @@
                                     onChange={(e) => setUserRoleFilter(e.target.value)}
                                     className={`${inputClass} text-xs`}
                                 >
-                                    <option value="all">كل الأدوار</option>
-                                    {Object.values(ROLES).map(r => <option key={r.code} value={r.code}>{r.label}</option>)}
+                                    <option value="all">كل الأدوار القيادية</option>
+                                    {OFFICIAL_ROLES.map(r => <option key={r.code} value={r.code}>{r.label}</option>)}
                                 </select>
                             </div>
                             <div>
@@ -3291,8 +3994,7 @@
                         <div className="p-4 bg-slate-900 border border-blue-500/30 rounded-2xl flex items-start gap-3 text-sm">
                             <i className="fa-solid fa-circle-info text-blue-400 mt-0.5"></i>
                             <p className="text-slate-300 leading-relaxed text-xs">
-                                الصلاحيات أدناه مطبَّقة فعليًا داخل واجهة الخادم، وليست إخفاءً للأزرار فقط:
-                                المستخدم بلا صلاحية «إنشاء وتعديل المهام» لا يستطيع إنشاءها حتى لو استُدعيت الواجهة البرمجية مباشرة.
+                                الصلاحيات والنطاق التشغيلي مطبقان ومحميان في طبقة الخادم بالكامل: لا يمكن للمستخدم الوصول إلا للبيانات والمشاريع المحددة في نطاقه التشغيلي وباقته.
                             </p>
                         </div>
 
@@ -3303,9 +4005,8 @@
                                     <thead>
                                         <tr className="border-b border-slate-800 text-slate-400 bg-slate-950/40 text-xs">
                                             <th scope="col" className="p-4 font-bold text-start">المستخدم</th>
-                                            <th scope="col" className="p-4 font-bold text-start">الجهة</th>
-                                            <th scope="col" className="p-4 font-bold text-start">الدور</th>
-                                            <th scope="col" className="p-4 font-bold text-start">الصلاحيات</th>
+                                            <th scope="col" className="p-4 font-bold text-start">الدور والنطاق التشغيلي</th>
+                                            <th scope="col" className="p-4 font-bold text-start">باقة الصلاحيات</th>
                                             <th scope="col" className="p-4 font-bold text-start">الحالة</th>
                                             <th scope="col" className="p-4 font-bold text-center no-print">إجراءات</th>
                                         </tr>
@@ -3313,17 +4014,23 @@
                                     <tbody className="divide-y divide-slate-800/60">
                                         {filteredUsers.length === 0 ? (
                                             <tr>
-                                                <td colSpan="6" className="p-8 text-center text-slate-500 text-xs">
+                                                <td colSpan="5" className="p-8 text-center text-slate-500 text-xs">
                                                     لا يوجد مستخدمون مطابقون لمعايير البحث
                                                 </td>
                                             </tr>
                                         ) : (
                                             filteredUsers.map(u => {
-                                                const role = lookup(ROLES, u.role, 'user');
+                                                const role = lookup(ROLES, u.role, 'team_member');
                                                 const status = lookup(USER_STATUS, u.status, 'pending');
-                                                const granted = u.role === 'admin'
-                                                    ? PERMISSIONS.length
-                                                    : PERMISSIONS.filter(p => (u.permissions || {})[p.key]).length;
+                                                const pkg = permissionPackages.find(p => p.id === u.package_id) || permissionPackages.find(p => p.code === role?.default_package);
+                                                const isOverride = pkg && role && pkg.is_default_for_role !== u.role && pkg.code !== role.default_package;
+
+                                                const scopeLabel = u.scope_type === 'مشروع'
+                                                    ? `مشاريع (${(u.assigned_project_ids || []).length})`
+                                                    : u.scope_type === 'إدارة'
+                                                        ? `إدارة: ${u.assigned_department || u.department || '—'}`
+                                                        : (u.department || 'عام');
+
                                                 return (
                                                     <tr key={u.id} className="hover:bg-slate-800/30">
                                                         <td className="p-4">
@@ -3335,16 +4042,34 @@
                                                                         {u.id === profile.id && <span className="text-xs text-emerald-400 font-bold"> (أنت)</span>}
                                                                     </span>
                                                                     <span className="text-xs text-slate-400 font-mono block truncate" dir="ltr">{u.email}</span>
-                                                                    {u.position && <span className="text-xs text-slate-500 block truncate">{u.position}</span>}
+                                                                    <div className="flex items-center gap-2 mt-0.5">
+                                                                        <OrgChip code={u.org} />
+                                                                        {u.position && <span className="text-xs text-slate-500 truncate">{u.position}</span>}
+                                                                    </div>
                                                                 </div>
                                                             </div>
                                                         </td>
-                                                        <td className="p-4"><OrgChip code={u.org} /></td>
-                                                        <td className="p-4">
+                                                        <td className="p-4 space-y-1">
                                                             <Chip className={role.chip} title={role.hint}>{role.label}</Chip>
+                                                            <span className="block text-[11px] text-slate-400 font-medium truncate max-w-xs">
+                                                                <i className={`fa-solid ${u.scope_type === 'مشروع' ? 'fa-diagram-project text-blue-400' : 'fa-building text-purple-400'} me-1`}></i>
+                                                                {scopeLabel}
+                                                            </span>
                                                         </td>
-                                                        <td className="p-4 text-xs text-slate-400 whitespace-nowrap">
-                                                            {u.role === 'admin' ? 'جميع الصلاحيات' : `${granted} من ${PERMISSIONS.length}`}
+                                                        <td className="p-4 space-y-1">
+                                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                                <span className="font-bold text-xs text-purple-300 block">
+                                                                    {pkg ? pkg.name : (u.role === 'admin' ? 'صلاحيات كاملة' : 'الباقة الافتراضية')}
+                                                                </span>
+                                                                {isOverride && (
+                                                                    <span className="px-1.5 py-0.2 rounded text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                                                        معدلة
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <span className="text-[11px] text-slate-500 block">
+                                                                {u.role === 'admin' ? 'شامل لكافة الشاشات' : `${Object.values(u.permissions || {}).filter(Boolean).length} صلاحية مفعلة`}
+                                                            </span>
                                                         </td>
                                                         <td className="p-4">
                                                             <Chip className={status.chip}>{status.label}</Chip>
@@ -3616,10 +4341,155 @@
                     </div>
                 )}
 
+                {/* TAB 3: PERMISSION PACKAGES */}
+                {activeSubTab === 'packages' && (
+                    <div className="space-y-4">
+                        {/* Filters & Search */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-900/80 p-3.5 border border-slate-800 rounded-2xl">
+                            <div className="relative sm:col-span-2">
+                                <i className="fa-solid fa-magnifying-glass absolute top-1/2 -translate-y-1/2 start-3 text-slate-500 text-xs"></i>
+                                <input
+                                    type="text"
+                                    value={pkgSearch}
+                                    onChange={(e) => setPkgSearch(e.target.value)}
+                                    placeholder="بحث باسم الباقة، الكود، أو الوصف..."
+                                    className={`${inputClass} ps-8 text-xs`}
+                                />
+                            </div>
+                            <div>
+                                <select
+                                    value={pkgScopeFilter}
+                                    onChange={(e) => setPkgScopeFilter(e.target.value)}
+                                    className={`${inputClass} text-xs`}
+                                >
+                                    <option value="all">كل النطاقات التشغيلية</option>
+                                    <option value="GLOBAL">شامل (GLOBAL)</option>
+                                    <option value="PROJECT">مشاريع (PROJECT)</option>
+                                    <option value="DEPARTMENT">إدارات (DEPARTMENT)</option>
+                                    <option value="ASSIGNED">مسند (ASSIGNED)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        {/* Packages Table */}
+                        <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-md">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <caption className="sr-only">باقات الصلاحيات النموذجية</caption>
+                                    <thead>
+                                        <tr className="border-b border-slate-800 text-slate-400 bg-slate-950/40 text-xs">
+                                            <th scope="col" className="p-4 font-bold text-start">اسم الباقة والوصف</th>
+                                            <th scope="col" className="p-4 font-bold text-start">النطاق والدور الافتراضي</th>
+                                            <th scope="col" className="p-4 font-bold text-start">الصلاحيات الممنوحة</th>
+                                            <th scope="col" className="p-4 font-bold text-start">المستخدمون المعينون</th>
+                                            <th scope="col" className="p-4 font-bold text-center no-print">الإجراءات</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-800/60">
+                                        {filteredPackages.length === 0 ? (
+                                            <tr>
+                                                <td colSpan="5" className="p-8 text-center text-slate-500 text-xs">
+                                                    لا توجد باقات صلاحيات مطابقة لمعايير البحث
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            filteredPackages.map(pkg => {
+                                                const assignedUsers = profiles.filter(u => u.package_id === pkg.id || (!u.package_id && ROLES[u.role]?.default_package === pkg.code));
+                                                const grantedCount = Object.values(pkg.permissions || {}).filter(Boolean).length;
+                                                const defaultRole = pkg.is_default_for_role ? ROLES[pkg.is_default_for_role] : null;
+
+                                                return (
+                                                    <tr key={pkg.id} className="hover:bg-slate-800/30">
+                                                        <td className="p-4">
+                                                            <div className="flex items-start gap-3">
+                                                                <div className="w-9 h-9 rounded-xl bg-purple-950/60 border border-purple-500/30 flex items-center justify-center text-purple-300 shrink-0">
+                                                                    <i className="fa-solid fa-layer-group text-sm"></i>
+                                                                </div>
+                                                                <div className="min-w-0 space-y-0.5">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="font-bold text-white text-sm block truncate">{pkg.name}</span>
+                                                                        {pkg.is_system && (
+                                                                            <span className="px-2 py-0.2 rounded-full text-[10px] bg-blue-950/60 text-blue-300 border border-blue-500/30">
+                                                                                نظامية
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    <span className="text-[11px] text-slate-400 font-mono block" dir="ltr">{pkg.code}</span>
+                                                                    {pkg.description && (
+                                                                        <p className="text-xs text-slate-400 line-clamp-2 max-w-md">{pkg.description}</p>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                        <td className="p-4 space-y-1">
+                                                            <div className="flex items-center gap-1.5">
+                                                                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-800 text-slate-200 border border-slate-700">
+                                                                    {pkg.scope_type === 'GLOBAL' ? 'شامل GLOBAL' : pkg.scope_type === 'PROJECT' ? 'مشاريع PROJECT' : pkg.scope_type === 'DEPARTMENT' ? 'إدارات DEPARTMENT' : 'مسند ASSIGNED'}
+                                                                </span>
+                                                            </div>
+                                                            {defaultRole && (
+                                                                <span className="text-[11px] text-purple-300 block font-medium">
+                                                                    افتراضية لـ: {defaultRole.label}
+                                                                </span>
+                                                            )}
+                                                        </td>
+                                                        <td className="p-4">
+                                                            <span className="font-bold text-sm text-slate-200 block">{grantedCount} من {PERMISSIONS.length}</span>
+                                                            <div className="w-24 bg-slate-800 h-1.5 rounded-full overflow-hidden mt-1">
+                                                                <div className="bg-purple-500 h-full rounded-full" style={{ width: `${(grantedCount / PERMISSIONS.length) * 100}%` }}></div>
+                                                            </div>
+                                                        </td>
+                                                        <td className="p-4">
+                                                            <span className="font-bold text-sm text-white block">{assignedUsers.length}</span>
+                                                            <span className="text-[11px] text-slate-500 block">مستخدمين مرتبطين</span>
+                                                        </td>
+                                                        <td className="p-4 no-print">
+                                                            <div className="flex items-center justify-center gap-1.5">
+                                                                {mayManagePackages && (
+                                                                    <button
+                                                                        onClick={() => setPackageModal({ open: true, initial: pkg, isClone: false })}
+                                                                        title="تعديل باقة الصلاحيات"
+                                                                        className="p-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded-lg text-xs font-bold"
+                                                                    >
+                                                                        <i className="fa-solid fa-pen-to-square"></i>
+                                                                    </button>
+                                                                )}
+                                                                {mayManagePackages && (
+                                                                    <button
+                                                                        onClick={() => setPackageModal({ open: true, initial: pkg, isClone: true })}
+                                                                        title="استنساخ باقة جديدة بناءً على هذه الباقة"
+                                                                        className="p-2 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 rounded-lg text-xs font-bold"
+                                                                    >
+                                                                        <i className="fa-solid fa-clone"></i>
+                                                                    </button>
+                                                                )}
+                                                                {mayManagePackages && !pkg.is_system && (
+                                                                    <button
+                                                                        onClick={() => handleDeletePackage(pkg)}
+                                                                        title="حذف الباقة المخصصة"
+                                                                        className="p-2 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 rounded-lg text-xs font-bold"
+                                                                    >
+                                                                        <i className="fa-solid fa-trash-can"></i>
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* Modals */}
                 <ApproveRegistrationModal
                     open={!!approveModalUser}
                     user={approveModalUser}
+                    data={data}
                     api={api}
                     onClose={() => setApproveModalUser(null)}
                     onSuccess={refresh}
@@ -3648,6 +4518,15 @@
                     onApprove={(u) => setApproveModalUser(u)}
                     onReject={(u) => setRejectModalUser(u)}
                     onRequestInfo={(u) => setRequestInfoModalUser(u)}
+                />
+                <PermissionPackageModal
+                    open={!!packageModal?.open}
+                    initial={packageModal?.initial}
+                    isClone={!!packageModal?.isClone}
+                    api={api}
+                    onClose={() => setPackageModal(null)}
+                    onSuccess={refresh}
+                    toast={toast}
                 />
             </div>
         );
@@ -10270,34 +11149,57 @@
         );
     }
 
-    function UserModal({ open, initial, onClose, onSubmit, busy, isSelf }) {
-        const [form, setForm] = useState({ name: '', position: '', department: '', team: '', data_scope: 'my_data', org: 'wamy', role: 'user', status: 'pending', permissions: EMPTY_PERMISSIONS });
+    function UserModal({ open, initial, data, onClose, onSubmit, busy, isSelf }) {
+        const [form, setForm] = useState({
+            name: '', position: '', department: '', team: '', data_scope: 'my_data',
+            org: 'wamy', role: 'team_member', status: 'pending',
+            scope_type: 'إدارة', assigned_project_ids: [], assigned_department: STANDARD_DEPARTMENTS[0] || '',
+            package_id: null, direct_permissions_allow: {}, direct_permissions_deny: {},
+            permissions: EMPTY_PERMISSIONS
+        });
 
         useEffect(() => {
             if (!open || !initial) return;
+            const userRole = initial.role || 'team_member';
+            const packages = data?.permissionPackages || [];
+            const defaultPkg = packages.find(p => p.is_default_for_role === userRole) || packages.find(p => p.code === ROLES[userRole]?.default_package);
+            
+            let autoScope = initial.scope_type;
+            if (!autoScope) {
+                autoScope = (userRole === 'project_manager' || (Array.isArray(initial.assigned_project_ids) && initial.assigned_project_ids.length > 0)) ? 'مشروع' : 'إدارة';
+            }
+
             setForm({
-                name: initial.name || '', position: initial.position || '', department: initial.department || '', team: initial.team || '', data_scope: initial.data_scope || 'my_data',
-                org: initial.org, role: initial.role, status: initial.status,
+                name: initial.name || '',
+                position: initial.position || '',
+                department: initial.department || '',
+                team: initial.team || '',
+                data_scope: initial.data_scope || 'my_data',
+                org: initial.org || 'wamy',
+                role: userRole,
+                status: initial.status || 'active',
+                scope_type: autoScope,
+                assigned_project_ids: Array.isArray(initial.assigned_project_ids) ? initial.assigned_project_ids : [],
+                assigned_department: initial.assigned_department || initial.department || STANDARD_DEPARTMENTS[0] || '',
+                package_id: initial.package_id || (defaultPkg ? defaultPkg.id : null),
+                direct_permissions_allow: initial.direct_permissions_allow || {},
+                direct_permissions_deny: initial.direct_permissions_deny || {},
                 permissions: { ...EMPTY_PERMISSIONS, ...(initial.permissions || {}) }
             });
-        }, [open, initial]);
+        }, [open, initial, data]);
 
         const set = (key) => (e) => setForm(prev => ({ ...prev, [key]: e.target.value }));
-        const togglePermission = (key) => (e) =>
-            setForm(prev => ({ ...prev, permissions: { ...prev.permissions, [key]: e.target.checked } }));
-
-        const adminImplied = form.role === 'admin';
 
         return (
-            <Modal open={open} onClose={onClose} size="lg"
-                   title="تعديل بيانات المستخدم وصلاحياته"
-                   subtitle={initial ? initial.email : null}
+            <Modal open={open} onClose={onClose} size="xl"
+                   title="تعديل بيانات المستخدم ونطاق العمل والصلاحيات"
+                   subtitle={initial ? `${initial.name} (${initial.email})` : null}
                    footer={
                        <React.Fragment>
                            <button type="button" onClick={onClose} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-sm font-bold">إلغاء</button>
                            <button type="submit" form="user-form" disabled={busy}
-                                   className="px-5 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-60 text-white rounded-xl text-sm font-bold">
-                               {busy && <i className="fa-solid fa-circle-notch fa-spin me-1.5"></i>}حفظ
+                                   className="px-5 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-60 text-white rounded-xl text-sm font-bold shadow-lg shadow-purple-900/30">
+                               {busy && <i className="fa-solid fa-circle-notch fa-spin me-1.5"></i>}حفظ التغييرات
                            </button>
                        </React.Fragment>
                    }>
@@ -10305,7 +11207,7 @@
                     {initial && initial.status === 'pending' && (
                         <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-200 text-xs flex items-center gap-2">
                             <i className="fa-solid fa-hourglass-half text-amber-400"></i>
-                            <span>هذا المستخدم مسجل ذاتياً وبانتظار الاعتماد. لتفعيله، حدد الدور والصلاحيات المطلوبة وغيّر حالة الحساب إلى «نشط» ثم اضغط حفظ.</span>
+                            <span>هذا المستخدم مسجل ذاتياً وبانتظار الاعتماد. لتفعيله، حدد النطاق والدور والباقة المطلوبة وغيّر حالة الحساب إلى «نشط» ثم اضغط حفظ.</span>
                         </div>
                     )}
                     {isSelf && (
@@ -10314,96 +11216,244 @@
                         </p>
                     )}
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <Field label="الاسم الكامل" required>
-                            <input className={inputClass} value={form.name} onChange={set('name')} required />
-                        </Field>
-                        <Field label="المنصب">
-                            <input className={inputClass} value={form.position} onChange={set('position')} />
-                        </Field>
-                        <Field label="الإدارة"><input className={inputClass} value={form.department} onChange={set('department')} /></Field>
-                        <Field label="الفريق"><input className={inputClass} value={form.team} onChange={set('team')} /></Field>
-                        <Field label="الجهة" required>
-                            <select className={inputClass} value={form.org} onChange={set('org')}>
-                                {ORG_LIST.map(o => <option key={o.code} value={o.code}>{o.label}</option>)}
-                            </select>
-                        </Field>
-                        <Field label="الدور" required>
-                            <select className={inputClass} value={form.role} onChange={set('role')}>
-                                {Object.values(ROLES).map(r => <option key={r.code} value={r.code}>{r.label} — {r.hint}</option>)}
-                            </select>
-                        </Field>
-                        <Field label="نطاق البيانات" required><select className={inputClass} value={form.data_scope} onChange={set('data_scope')}>{Object.entries(DATA_SCOPES).map(([key,value]) => <option key={key} value={key}>{value.label}</option>)}</select></Field>
+                    <div className="p-4 bg-slate-900/80 border border-slate-800 rounded-2xl space-y-3">
+                        <h4 className="text-xs font-extrabold text-blue-300 flex items-center gap-2">
+                            <i className="fa-solid fa-user text-blue-400"></i>
+                            <span>البيانات الأساسية والوظيفية</span>
+                        </h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                            <Field label="الاسم الكامل" required>
+                                <input className={inputClass} value={form.name} onChange={set('name')} required />
+                            </Field>
+                            <Field label="المنصب">
+                                <input className={inputClass} value={form.position} onChange={set('position')} placeholder="مثال: مسؤول الإنتاج الرقمي" />
+                            </Field>
+                            <Field label="الفريق الداخلي">
+                                <input className={inputClass} value={form.team} onChange={set('team')} placeholder="مثال: فريق التصميم" />
+                            </Field>
+                            <Field label="الجهة" required>
+                                <select className={inputClass} value={form.org} onChange={set('org')}>
+                                    {ORG_LIST.map(o => <option key={o.code} value={o.code}>{o.label}</option>)}
+                                </select>
+                            </Field>
+                            <Field label="حالة الحساب" required>
+                                <select className={inputClass} value={form.status} onChange={set('status')}>
+                                    {Object.values(USER_STATUS).map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
+                                </select>
+                            </Field>
+                            <Field label="نطاق البيانات" required>
+                                <select className={inputClass} value={form.data_scope} onChange={set('data_scope')}>
+                                    {Object.entries(DATA_SCOPES).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}
+                                </select>
+                            </Field>
+                        </div>
                     </div>
 
-                    <Field label="حالة الحساب" required
-                           hint="الحسابات غير النشطة لا تستطيع قراءة أي بيانات، حتى لو سجّلت الدخول بنجاح.">
-                        <select className={inputClass} value={form.status} onChange={set('status')}>
-                            {Object.values(USER_STATUS).map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
-                        </select>
-                    </Field>
-
-                    <fieldset className="border border-slate-800 rounded-xl p-4 space-y-4 max-h-[45vh] overflow-y-auto">
-                        <legend className="px-2 text-sm font-bold text-slate-300">الصلاحيات التفصيلية</legend>
-                        {adminImplied && (
-                            <p className="text-xs text-purple-300 bg-purple-950/40 border border-purple-500/30 rounded-lg p-2.5">
-                                مدير النظام يملك جميع الصلاحيات ضمنيًا؛ الخيارات أدناه معطّلة.
-                            </p>
-                        )}
-                        {PERMISSION_GROUPS.map(group => <div key={group.label}><h4 className="text-xs font-extrabold text-blue-300 mb-2">{group.label}</h4><div className="grid sm:grid-cols-2 gap-2">{group.items.map(p => (
-                            <label key={p.key} className="flex items-center gap-2 cursor-pointer text-sm text-slate-200">
-                                <input type="checkbox" className="w-4 h-4 accent-purple-500 disabled:opacity-40" checked={adminImplied || !!form.permissions[p.key]} disabled={adminImplied} onChange={togglePermission(p.key)} />
-                                <span>{p.label}</span>
-                            </label>
-                        ))}</div></div>)}
-                    </fieldset>
+                    <UserScopeAndPermissionsEditor form={form} setForm={setForm} data={data} isInvite={false} />
                 </form>
             </Modal>
         );
     }
 
-    function InviteUserModal({ open, initial, api, onClose, onCreated, toast }) {
-        const defaults = { name: '', email: '', position: '', department: '', team: '', data_scope: 'my_data', org: 'wamy', role: 'user', permissions: { ...EMPTY_PERMISSIONS, 'Dashboard.View': true } };
-        const [form,setForm] = useState(defaults);
-        const [result,setResult] = useState(null);
-        const [busy,setBusy] = useState(false);
+    function InviteUserModal({ open, initial, data, api, onClose, onCreated, toast }) {
+        const packages = data?.permissionPackages || [];
+        const defaultRole = 'team_member';
+        const defaultPkg = packages.find(p => p.is_default_for_role === defaultRole) || packages.find(p => p.code === ROLES[defaultRole]?.default_package);
+
+        const defaults = {
+            name: '',
+            email: '',
+            position: '',
+            department: '',
+            team: '',
+            data_scope: 'my_data',
+            org: 'wamy',
+            role: defaultRole,
+            status: 'pending',
+            scope_type: 'إدارة',
+            assigned_project_ids: [],
+            assigned_department: STANDARD_DEPARTMENTS[0] || '',
+            package_id: defaultPkg ? defaultPkg.id : null,
+            direct_permissions_allow: {},
+            direct_permissions_deny: {},
+            permissions: EMPTY_PERMISSIONS
+        };
+
+        const [form, setForm] = useState(defaults);
+        const [result, setResult] = useState(null);
+        const [busy, setBusy] = useState(false);
+
         useEffect(() => {
             if (!open) return;
             setResult(null);
-            setForm(initial ? { name: initial.name || '', email: initial.email || '', position: initial.position || '', department: initial.department || '', team: initial.team || '', data_scope: initial.data_scope || 'my_data',
-                org: initial.org || 'wamy', role: initial.role || 'user', permissions: { ...EMPTY_PERMISSIONS, ...(initial.permissions || {}) } } : defaults);
-        }, [open,initial]);
-        const set = key => event => setForm(value => ({ ...value, [key]: event.target.value }));
-        const toggle = key => event => setForm(value => ({ ...value, permissions: { ...value.permissions, [key]: event.target.checked } }));
-        const submit = async event => {
-            event.preventDefault(); setBusy(true);
+            if (initial) {
+                const userRole = initial.role || 'team_member';
+                const pkg = packages.find(p => p.is_default_for_role === userRole) || packages.find(p => p.code === ROLES[userRole]?.default_package);
+                let autoScope = initial.scope_type;
+                if (!autoScope) {
+                    autoScope = (userRole === 'project_manager' || (Array.isArray(initial.assigned_project_ids) && initial.assigned_project_ids.length > 0)) ? 'مشروع' : 'إدارة';
+                }
+                setForm({
+                    name: initial.name || '',
+                    email: initial.email || '',
+                    position: initial.position || '',
+                    department: initial.department || '',
+                    team: initial.team || '',
+                    data_scope: initial.data_scope || 'my_data',
+                    org: initial.org || 'wamy',
+                    role: userRole,
+                    status: 'pending',
+                    scope_type: autoScope,
+                    assigned_project_ids: Array.isArray(initial.assigned_project_ids) ? initial.assigned_project_ids : [],
+                    assigned_department: initial.assigned_department || initial.department || STANDARD_DEPARTMENTS[0] || '',
+                    package_id: initial.package_id || (pkg ? pkg.id : null),
+                    direct_permissions_allow: initial.direct_permissions_allow || {},
+                    direct_permissions_deny: initial.direct_permissions_deny || {},
+                    permissions: { ...EMPTY_PERMISSIONS, ...(initial.permissions || {}) }
+                });
+            } else {
+                setForm({
+                    ...defaults,
+                    package_id: defaultPkg ? defaultPkg.id : null
+                });
+            }
+        }, [open, initial, data]);
+
+        const set = (key) => (e) => setForm(prev => ({ ...prev, [key]: e.target.value }));
+
+        const submit = async (e) => {
+            e.preventDefault();
+            setBusy(true);
             try {
-                const created = await api.profiles.invite({ ...form, profile_id: initial && initial.id });
-                setResult(created); await onCreated(); toast(initial ? 'تم إصدار رابط تسجيل جديد' : 'تمت إضافة المستخدم وإصدار رابط التسجيل','success');
-            } catch (error) { toast(error.message,'error'); } finally { setBusy(false); }
+                const created = await api.profiles.invite({
+                    ...form,
+                    profile_id: initial && initial.id
+                });
+                setResult(created);
+                await onCreated();
+                toast(initial ? 'تم إصدار رابط تسجيل جديد' : 'تمت إضافة المستخدم وإصدار رابط التسجيل', 'success');
+            } catch (error) {
+                toast(error.message, 'error');
+            } finally {
+                setBusy(false);
+            }
         };
-        const shareText = result ? `مرحبًا ${result.user.name}، أكمل تسجيلك في نظام متابعة WAMY عبر الرابط التالي: ${result.invitation_url}` : '';
+
+        const shareText = result ? `مرحبًا ${result.user.name}، أكمل تسجيلك في نظام إدارة المشاريع والخطط WAMY عبر الرابط التالي: ${result.invitation_url}` : '';
         const copy = async () => {
-            try { await navigator.clipboard.writeText(result.invitation_url); toast('تم نسخ رابط التسجيل','success'); }
-            catch { window.prompt('انسخ رابط التسجيل:',result.invitation_url); }
+            try {
+                await navigator.clipboard.writeText(result.invitation_url);
+                toast('تم نسخ رابط التسجيل', 'success');
+            } catch {
+                window.prompt('انسخ رابط التسجيل:', result.invitation_url);
+            }
         };
         const nativeShare = async () => {
             if (!navigator.share) { copy(); return; }
-            try { await navigator.share({ title: 'دعوة تسجيل', text: shareText, url: result.invitation_url }); } catch (error) { if (error.name !== 'AbortError') toast('تعذرت المشاركة','error'); }
+            try {
+                await navigator.share({ title: 'دعوة تسجيل', text: shareText, url: result.invitation_url });
+            } catch (error) {
+                if (error.name !== 'AbortError') toast('تعذرت المشاركة', 'error');
+            }
         };
-        return <Modal open={open} onClose={onClose} size="lg" title={initial ? 'إعادة إصدار دعوة المستخدم' : 'إضافة مستخدم جديد'} subtitle="حدد الدور والصلاحيات قبل إرسال رابط التسجيل."
-            footer={<React.Fragment><button onClick={onClose} className="px-4 py-2 bg-slate-800 rounded-xl">إغلاق</button>{!result && <button type="submit" form="invite-user-form" disabled={busy} className="px-5 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white rounded-xl font-bold">{busy && <i className="fa-solid fa-circle-notch fa-spin me-2"></i>}إنشاء المستخدم والرابط</button>}</React.Fragment>}>
-            {!result ? <form id="invite-user-form" onSubmit={submit} className="space-y-4">
-                <div className="grid sm:grid-cols-2 gap-4"><Field label="الاسم الكامل" required><input className={inputClass} value={form.name} onChange={set('name')} required maxLength="200" /></Field><Field label="البريد الإلكتروني" required hint={initial ? 'لتغيير البريد استخدم شاشة تعديل المستخدم أولًا.' : null}><input type="email" dir="ltr" readOnly={!!initial} className={cx(inputClass,'font-mono',initial && 'opacity-70')} value={form.email} onChange={set('email')} required maxLength="320" /></Field><Field label="المنصب"><input className={inputClass} value={form.position} onChange={set('position')} /></Field><Field label="الإدارة"><input className={inputClass} value={form.department} onChange={set('department')} /></Field><Field label="الفريق"><input className={inputClass} value={form.team} onChange={set('team')} /></Field><Field label="الجهة" required><select className={inputClass} value={form.org} onChange={set('org')}>{ORG_LIST.map(item => <option key={item.code} value={item.code}>{item.label}</option>)}</select></Field><Field label="الدور" required><select className={inputClass} value={form.role} onChange={set('role')}>{Object.values(ROLES).map(item => <option key={item.code} value={item.code}>{item.label} — {item.hint}</option>)}</select></Field><Field label="نطاق البيانات" required><select className={inputClass} value={form.data_scope} onChange={set('data_scope')}>{Object.entries(DATA_SCOPES).map(([key,value]) => <option key={key} value={key}>{value.label}</option>)}</select></Field></div>
-                <fieldset className="border border-slate-800 rounded-xl p-4 space-y-4 max-h-[40vh] overflow-y-auto"><legend className="px-2 text-sm font-bold">الصلاحيات</legend>{form.role === 'admin' && <p className="text-xs text-purple-300">مدير النظام يحصل على جميع الصلاحيات تلقائيًا.</p>}{PERMISSION_GROUPS.map(group => <div key={group.label}><h4 className="text-xs font-extrabold text-blue-300 mb-2">{group.label}</h4><div className="grid sm:grid-cols-2 gap-2">{group.items.map(permission => <label key={permission.key} className="flex items-center gap-2 text-sm"><input type="checkbox" className="accent-purple-500" disabled={form.role === 'admin'} checked={form.role === 'admin' || !!form.permissions[permission.key]} onChange={toggle(permission.key)} /><span>{permission.label}</span></label>)}</div></div>)}</fieldset>
-                <p className="text-xs text-slate-500">سيبقى الحساب بانتظار التفعيل حتى يفتح المستلم الرابط ويختار كلمة مروره. إصدار رابط جديد يلغي الرابط السابق.</p>
-            </form> : <div className="space-y-4">
-                <div className="p-4 bg-emerald-950/30 border border-emerald-500/30 rounded-xl"><strong className="text-emerald-300 block">تم تجهيز دعوة {result.user.name}</strong><span className="text-xs text-slate-400">صالحة حتى {formatDateTime(result.expires_at)}</span></div>
-                <Field label="رابط التسجيل الخاص"><input readOnly dir="ltr" className={cx(inputClass,'font-mono text-xs')} value={result.invitation_url} onFocus={event => event.target.select()} /></Field>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2"><button onClick={copy} className="p-3 bg-blue-600 text-white rounded-xl text-sm font-bold"><i className="fa-regular fa-copy me-1"></i>نسخ</button><a href={`mailto:${encodeURIComponent(result.user.email)}?subject=${encodeURIComponent('دعوة للتسجيل في نظام متابعة WAMY')}&body=${encodeURIComponent(shareText)}`} className="p-3 bg-slate-800 text-center rounded-xl text-sm font-bold"><i className="fa-regular fa-envelope me-1"></i>البريد</a><a target="_blank" rel="noopener noreferrer" href={`https://wa.me/?text=${encodeURIComponent(shareText)}`} className="p-3 bg-emerald-600 text-white text-center rounded-xl text-sm font-bold"><i className="fa-brands fa-whatsapp me-1"></i>واتساب</a><button onClick={nativeShare} className="p-3 bg-purple-600 text-white rounded-xl text-sm font-bold"><i className="fa-solid fa-share-nodes me-1"></i>مشاركة</button></div>
-                <p className="text-xs text-amber-300">هذا الرابط خاص بالمستخدم؛ لا تنشره في قناة عامة.</p>
-            </div>}
-        </Modal>;
+
+        return (
+            <Modal open={open} onClose={onClose} size="xl"
+                   title={initial ? 'إعادة إصدار دعوة المستخدم' : 'إضافة مستخدم جديد ودعوته للنظام'}
+                   subtitle="حدد النطاق التشغيلي، الدور، وباقة الصلاحيات المعتمدة قبل إرسال رابط التسجيل."
+                   footer={
+                       <React.Fragment>
+                           <button type="button" onClick={onClose} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-sm font-bold">إغلاق</button>
+                           {!result && (
+                               <button type="submit" form="invite-user-form" disabled={busy}
+                                       className="px-5 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white rounded-xl font-bold shadow-lg shadow-purple-900/30">
+                                   {busy && <i className="fa-solid fa-circle-notch fa-spin me-2"></i>}إنشاء المستخدم وإصدار الدعوة
+                               </button>
+                           )}
+                       </React.Fragment>
+                   }>
+                {!result ? (
+                    <form id="invite-user-form" onSubmit={submit} className="space-y-4">
+                        <div className="p-4 bg-slate-900/80 border border-slate-800 rounded-2xl space-y-3">
+                            <h4 className="text-xs font-extrabold text-blue-300 flex items-center gap-2">
+                                <i className="fa-solid fa-user-plus text-blue-400"></i>
+                                <span>بيانات المستخدم الأساسية</span>
+                            </h4>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                <Field label="الاسم الكامل" required>
+                                    <input className={inputClass} value={form.name} onChange={set('name')} required maxLength="200" placeholder="الاسم ثلاثي أو رباعي" />
+                                </Field>
+                                <Field label="البريد الإلكتروني" required hint={initial ? 'لتغيير البريد استخدم شاشة تعديل المستخدم أولًا.' : null}>
+                                    <input type="email" dir="ltr" readOnly={!!initial} className={cx(inputClass, 'font-mono', initial && 'opacity-70')} value={form.email} onChange={set('email')} required maxLength="320" placeholder="name@domain.org" />
+                                </Field>
+                                <Field label="المنصب">
+                                    <input className={inputClass} value={form.position} onChange={set('position')} placeholder="المسمى الوظيفي" />
+                                </Field>
+                                <Field label="الفريق الداخلي">
+                                    <input className={inputClass} value={form.team} onChange={set('team')} placeholder="اسم الفريق الداخلي" />
+                                </Field>
+                                <Field label="الجهة" required>
+                                    <select className={inputClass} value={form.org} onChange={set('org')}>
+                                        {ORG_LIST.map(item => <option key={item.code} value={item.code}>{item.label}</option>)}
+                                    </select>
+                                </Field>
+                                <Field label="نطاق البيانات" required>
+                                    <select className={inputClass} value={form.data_scope} onChange={set('data_scope')}>
+                                        {Object.entries(DATA_SCOPES).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}
+                                    </select>
+                                </Field>
+                            </div>
+                        </div>
+
+                        <UserScopeAndPermissionsEditor form={form} setForm={setForm} data={data} isInvite={true} />
+
+                        <p className="text-xs text-slate-500 flex items-center gap-1.5 pt-1">
+                            <i className="fa-solid fa-circle-info text-blue-400"></i>
+                            <span>سيبقى الحساب بانتظار التفعيل حتى يفتح المستلم الرابط ويحدد كلمة مروره. إصدار رابط جديد يلغي صلاحية الرابط السابق.</span>
+                        </p>
+                    </form>
+                ) : (
+                    <div className="space-y-4">
+                        <div className="p-4 bg-emerald-950/30 border border-emerald-500/30 rounded-2xl flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-300 flex items-center justify-center shrink-0">
+                                <i className="fa-solid fa-envelope-circle-check text-lg"></i>
+                            </div>
+                            <div>
+                                <strong className="text-emerald-300 block text-sm font-bold">تم تجهيز دعوة {result.user.name} بنجاح</strong>
+                                <span className="text-xs text-slate-400">الرابط صالح حتى {formatDateTime(result.expires_at)}</span>
+                            </div>
+                        </div>
+                        <Field label="رابط التسجيل الخاص">
+                            <input readOnly dir="ltr" className={cx(inputClass, 'font-mono text-xs text-emerald-300 bg-slate-950/80')} value={result.invitation_url} onFocus={(e) => e.target.select()} />
+                        </Field>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                            <button type="button" onClick={copy} className="p-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-md shadow-blue-900/30">
+                                <i className="fa-regular fa-copy"></i>
+                                <span>نسخ الرابط</span>
+                            </button>
+                            <a href={`mailto:${encodeURIComponent(result.user.email)}?subject=${encodeURIComponent('دعوة للتسجيل في نظام إدارة المشاريع والخطط WAMY')}&body=${encodeURIComponent(shareText)}`}
+                               className="p-3 bg-slate-800 hover:bg-slate-700 text-center rounded-xl text-sm font-bold flex items-center justify-center gap-2">
+                                <i className="fa-regular fa-envelope"></i>
+                                <span>عبر البريد</span>
+                            </a>
+                            <a target="_blank" rel="noopener noreferrer" href={`https://wa.me/?text=${encodeURIComponent(shareText)}`}
+                               className="p-3 bg-emerald-600 hover:bg-emerald-500 text-white text-center rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-md shadow-emerald-900/30">
+                                <i className="fa-brands fa-whatsapp"></i>
+                                <span>عبر واتساب</span>
+                            </a>
+                            <button type="button" onClick={nativeShare} className="p-3 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-md shadow-purple-900/30">
+                                <i className="fa-solid fa-share-nodes"></i>
+                                <span>مشاركة…</span>
+                            </button>
+                        </div>
+                        <p className="text-xs text-amber-300/90 flex items-center gap-1.5 p-3 bg-amber-950/30 border border-amber-500/20 rounded-xl">
+                            <i className="fa-solid fa-shield-halved text-amber-400"></i>
+                            <span>هذا الرابط خاص بالمستخدم فقط؛ لا تنشره في قنوات عامة لضمان أمان الحساب.</span>
+                        </p>
+                    </div>
+                )}
+            </Modal>
+        );
     }
 
     /* Real uploads: the file goes to Drive, into the product's own
@@ -10761,7 +11811,7 @@
             const sequence = ++refreshSequence.current;
             try {
                 const fetchAdmin = includeAdmin || activeTab === 'settings';
-                const [orgs, projects, planItems, alerts, products, tasks, files, profiles, logs, appSettings] = await Promise.all([
+                const [orgs, projects, planItems, alerts, products, tasks, files, profiles, logs, appSettings, permissionPackages] = await Promise.all([
                     api.organizations ? api.organizations.list(fetchAdmin ? { include_inactive: 'true' } : undefined) : Promise.resolve([]),
                     canAny(profile,'Projects.View','MainPlan.View','Plans.View','Tasks.View','Tasks.Create','Timeline.View','Calendar.View','Reports.View','Dashboard.View') ? api.projects.list() : Promise.resolve([]),
                     canAny(profile,'MainPlan.View','Plans.View','Tasks.View','Tasks.Create','Timeline.View','Reports.View') ? api.planItems.list() : Promise.resolve([]),
@@ -10771,7 +11821,8 @@
                     canAny(profile,'Files.View','Dashboard.View') ? api.files.list() : Promise.resolve([]),
                     fetchAdmin && can(profile,'Settings.Users') ? api.profiles.list() : Promise.resolve(null),
                     fetchAdmin && can(profile,'Audit.View') ? api.logs.list() : Promise.resolve(null),
-                    fetchAdmin && can(profile,'Settings.View') ? api.settings.get() : Promise.resolve(null)
+                    fetchAdmin && can(profile,'Settings.View') ? api.settings.get() : Promise.resolve(null),
+                    api.permissionPackages ? api.permissionPackages.list().catch(() => []) : Promise.resolve([])
                 ]);
                 // A slower, older request must never replace a newer snapshot.
                 if (sequence === refreshSequence.current) {
@@ -10785,6 +11836,7 @@
                     const safeProducts = sanitizeRows(products);
                     const safeTasks = sanitizeRows(tasks);
                     const safeFiles = sanitizeRows(files);
+                    const safePackages = sanitizeRows(permissionPackages) || [];
                     setData(prev => ({
                         organizations: safeOrgs || prev.organizations || [],
                         projects: safeProjects,
@@ -10794,7 +11846,8 @@
                         tasks: safeTasks,
                         files: safeFiles,
                         profiles: profiles !== null ? sanitizeRows(profiles) : prev.profiles,
-                        logs: logs !== null ? sanitizeRows(logs) : prev.logs
+                        logs: logs !== null ? sanitizeRows(logs) : prev.logs,
+                        permissionPackages: safePackages.length ? safePackages : (prev.permissionPackages || [])
                     }));
                     if (appSettings !== null) setSettings(appSettings);
                     setLoadError('');
@@ -11495,10 +12548,11 @@
                               data={data}
                               onClose={() => setProductModal(null)} onSubmit={saveProduct} busy={busy} />
                 <UserModal open={!!userModal} initial={userModal && userModal.initial}
+                           data={data} api={api}
                            isSelf={!!(userModal && userModal.initial && userModal.initial.id === profile.id)}
                            onClose={() => setUserModal(null)} onSubmit={saveUser} busy={busy} />
                 <InviteUserModal open={!!inviteUserModal} initial={inviteUserModal && inviteUserModal.initial}
-                                 api={api} onClose={() => setInviteUserModal(null)} onCreated={refresh} toast={toast} />
+                                 data={data} api={api} onClose={() => setInviteUserModal(null)} onCreated={refresh} toast={toast} />
                 <ChangePasswordModal open={changePasswordOpen} api={api}
                                      onClose={() => setChangePasswordOpen(false)} toast={toast} />
                 <ResetPasswordModal open={!!resetPasswordUser} user={resetPasswordUser}

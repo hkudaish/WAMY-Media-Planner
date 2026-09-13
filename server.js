@@ -180,17 +180,46 @@ async function issueSession(res, userId) {
   });
 }
 
+function resolveEffectivePermissions(user, customPackagePerms = null) {
+  if (!user) return {};
+  const basePerms = customPackagePerms
+    || user.package_permissions
+    || user.permissions
+    || {};
+  const allow = user.direct_permissions_allow || {};
+  const deny = user.direct_permissions_deny || {};
+  const effective = { ...basePerms };
+  for (const [key, val] of Object.entries(allow)) {
+    if (val === true) effective[key] = true;
+  }
+  for (const [key, val] of Object.entries(deny)) {
+    if (val === true) effective[key] = false;
+  }
+  return effective;
+}
+
 async function loadUser(req, _res, next) {
   try {
     const token = parseCookies(req.headers.cookie)[COOKIE_NAME];
     if (!token) return next();
     const { rows } = await pool.query(
-      `select p.* from sessions s join profiles p on p.id=s.user_id
-       where s.token_hash=$1 and s.expires_at > now() and p.deleted_at is null`,
+      `select p.*,
+              pkg.name as package_name,
+              pkg.code as package_code,
+              pkg.scope_type as package_scope_type,
+              pkg.permissions as package_permissions
+         from sessions s
+         join profiles p on p.id=s.user_id
+         left join permission_packages pkg on pkg.id=p.package_id and pkg.deleted_at is null
+        where s.token_hash=$1 and s.expires_at > now() and p.deleted_at is null`,
       [tokenHash(token)]
     );
     req.sessionToken = token;
-    req.user = rows[0] || null;
+    const user = rows[0] || null;
+    if (user) {
+      user.effective_permissions = resolveEffectivePermissions(user);
+    }
+    req.user = user;
     next();
   } catch (error) { next(error); }
 }
@@ -222,18 +251,60 @@ const LEGACY_PERMISSION_MAP = {
   'USER_REGISTRATION_REVIEW':'Settings.Users','USER_REGISTRATION_APPROVE':'Settings.Users','USER_REGISTRATION_REJECT':'Settings.Users',
   'USER_PERMISSION_ASSIGN':'Settings.Permissions'
 };
-function can(user, permission) {
+
+function hasPermission(user, permission, resourceContext = null) {
   if (isAdmin(user)) return true;
-  const permissions = (user && user.permissions) || {};
-  if (Object.prototype.hasOwnProperty.call(permissions, permission)) return permissions[permission] === true;
-  return Boolean(LEGACY_PERMISSION_MAP[permission] && permissions[LEGACY_PERMISSION_MAP[permission]]);
+  if (!user || user.status !== 'active') return false;
+
+  const perms = user.effective_permissions || resolveEffectivePermissions(user);
+  const granted = perms[permission] === true || Boolean(LEGACY_PERMISSION_MAP[permission] && perms[LEGACY_PERMISSION_MAP[permission]]);
+  if (!granted) return false;
+
+  if (resourceContext && !hasAllData(user)) {
+    const scopeType = user.scope_type || 'assigned';
+    if (scopeType === 'global') return true;
+
+    if (scopeType === 'project') {
+      const assigned = Array.isArray(user.assigned_project_ids)
+        ? user.assigned_project_ids
+        : (typeof user.assigned_project_ids === 'string' ? JSON.parse(user.assigned_project_ids || '[]') : []);
+      if (resourceContext.project_id && !assigned.includes(resourceContext.project_id)) {
+        if (resourceContext.manager_id !== user.id) {
+          return false;
+        }
+      }
+    } else if (scopeType === 'department' || scopeType === 'section') {
+      const userDept = user.assigned_department || user.department;
+      if (userDept && resourceContext.department && resourceContext.department !== userDept) {
+        return false;
+      }
+      if (userDept && resourceContext.project_department && resourceContext.project_department !== userDept) {
+        return false;
+      }
+      if (resourceContext.org && resourceContext.org !== user.org) {
+        return false;
+      }
+    } else if (scopeType === 'assigned') {
+      if (resourceContext.assignee_id && resourceContext.assignee_id !== user.id) {
+        if (!Array.isArray(resourceContext.assignee_ids) || !resourceContext.assignee_ids.includes(user.id)) {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
+function can(user, permission, resourceContext = null) {
+  return hasPermission(user, permission, resourceContext);
 }
 function canAny(user, ...permissions) { return permissions.some(permission => can(user,permission)); }
-function hasAllData(user) { return isAdmin(user) || user.data_scope === 'all_data'; }
+function hasAllData(user) { return isAdmin(user) || (user && (user.data_scope === 'all_data' || user.scope_type === 'global')); }
 function forbid(res) { return res.status(403).json({ code: 'FORBIDDEN', message: 'ليست لديك الصلاحية لتنفيذ هذه العملية.' }); }
 
 const ENUMS = {
-  role: new Set(['admin','supervisor','project_manager','department_manager','team_lead','user','reviewer','approver','read_only']),
+  role: new Set(['admin','project_manager','department_manager','team_head','team_member','user','supervisor','team_lead','reviewer','approver','read_only']),
+  scopeType: new Set(['global', 'project', 'department', 'section', 'assigned', 'مشروع', 'إدارة']),
   userStatus: new Set(['pending', 'active', 'rejected', 'suspended', 'disabled', 'needs_info']),
   org: new Set(['wamy', 'imaan']),
   taskStatus: new Set(['not_started', 'in_progress', 'on_hold', 'awaiting_approval', 'needs_revision', 'completed_approved', 'cancelled']),
@@ -245,6 +316,15 @@ const ENUMS = {
   fileStatus: new Set(['draft', 'under_review', 'ready_for_approval', 'approved', 'rejected']),
   taskMode: new Set(['structured', 'adhoc'])
 };
+
+function normalizeScopeType(val, role) {
+  const s = String(val || '').trim().toLowerCase();
+  if (s === 'مشروع' || s === 'project') return 'مشروع';
+  if (s === 'إدارة' || s === 'department' || s === 'section') return 'إدارة';
+  if (role === 'project_manager') return 'مشروع';
+  if (role === 'department_manager' || role === 'team_head') return 'إدارة';
+  return 'إدارة';
+}
 
 function invalid(res, message) {
   return res.status(400).json({ code: 'INVALID_INPUT', message });
@@ -542,7 +622,7 @@ async function validatePlanRows(inputRows) {
 }
 
 const FIELDS = {
-  profiles: ['name','email','mobile','role','org','position','department','team','data_scope','status','permissions','avatar_url','request_notes','rejection_reason','request_info_note','approved_by','approved_at','reviewed_by','reviewed_at'],
+  profiles: ['name','email','mobile','role','org','position','department','team','data_scope','status','permissions','avatar_url','request_notes','rejection_reason','request_info_note','approved_by','approved_at','reviewed_by','reviewed_at','package_id','scope_type','assigned_project_ids','assigned_department','direct_permissions_allow','direct_permissions_deny'],
   projects: ['code','hierarchical_code','name','description','objective','vision','mission','org','manager_id','planned_start','planned_end','status','budget','currency','source_notes','classification'],
   products: ['code','hierarchical_code','legacy_code','project_id','plan_track','name','content','target_qty','org','manager_id','start_date','due_date','status','manual_progress','active_duration_days','recurrence','allow_multiple_tasks','is_active','drive_folder_id','drive_proposals_folder_id','drive_approved_folder_id'],
   tasks: ['product_id','project_id','plan_item_id','title','description','goal','required_outputs','org','assignee_id','priority','status','progress','planned_start','due_date','scheduled_start_at','scheduled_due_at','actual_completion','active_duration','phase_name','notes','import_key','created_by','task_mode','actual_start_at','started_by_id','completion_submitted_at','completion_submitted_by_id','completion_approved_at','completion_approved_by_id','hold_reason','hold_at','hold_by_id','expected_resume_at','original_due_at','extension_count'],
@@ -821,6 +901,188 @@ app.post('/api/auth/change-password', requireSession, requireActive, async (req,
 });
 
 app.get('/api/profiles/me', requireSession, (req, res) => res.json(publicProfile(req.user)));
+
+// -----------------------------------------------------------------------------
+// Permission Packages Management API
+// -----------------------------------------------------------------------------
+app.get('/api/permission-packages', requireActive, async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `select pkg.*,
+              coalesce(count(distinct p.id), 0)::int as users_count
+         from permission_packages pkg
+         left join profiles p on p.package_id = pkg.id and p.deleted_at is null
+        where pkg.deleted_at is null
+        group by pkg.id
+        order by pkg.is_system desc, pkg.created_at asc`
+    );
+    res.json(rows);
+  } catch (error) { next(error); }
+});
+
+app.post('/api/permission-packages', requireActive, async (req, res, next) => {
+  if (!isAdmin(req.user) && !can(req.user, 'Settings.Permissions')) return forbid(res);
+  const name = String(req.body.name || '').trim();
+  const code = String(req.body.code || `pkg_${Date.now()}`).trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+  const description = String(req.body.description || '').trim() || null;
+  const scopeType = ['global', 'project', 'department', 'section', 'assigned'].includes(req.body.scope_type) ? req.body.scope_type : 'assigned';
+  const permissions = req.body.permissions && typeof req.body.permissions === 'object' ? req.body.permissions : {};
+  const isDefaultForRole = req.body.is_default_for_role || null;
+  const isActive = req.body.is_active !== false;
+
+  if (!name) return invalid(res, 'اسم باقة الصلاحيات مطلوب.');
+
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    if (isDefaultForRole) {
+      await client.query(
+        `update permission_packages set is_default_for_role = null where is_default_for_role = $1`,
+        [isDefaultForRole]
+      );
+    }
+    const { rows } = await client.query(
+      `insert into permission_packages (code, name, description, scope_type, permissions, is_default_for_role, is_active, is_system)
+       values ($1, $2, $3, $4, $5, $6, $7, false)
+       returning *`,
+      [code, name, description, scopeType, JSON.stringify(permissions), isDefaultForRole, isActive]
+    );
+    await writeAudit(client, req, `إنشاء باقة صلاحيات جديدة: ${name}`, 'CREATE', 'permission_packages', rows[0].id, {
+      code, name, scope_type: scopeType, is_default_for_role: isDefaultForRole
+    });
+    await client.query('commit');
+    res.status(201).json(rows[0]);
+  } catch (error) {
+    await client.query('rollback');
+    if (error.code === '23505') return res.status(409).json({ code: 'DUPLICATE_CODE', message: 'رمز باقة الصلاحيات مستخدم مسبقًا.' });
+    next(error);
+  } finally { client.release(); }
+});
+
+app.put('/api/permission-packages/:id', requireActive, async (req, res, next) => {
+  if (!isAdmin(req.user) && !can(req.user, 'Settings.Permissions')) return forbid(res);
+  const id = req.params.id;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return invalid(res, 'معرف الباقة غير صالح.');
+
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    const existing = (await client.query(`select * from permission_packages where id = $1 and deleted_at is null for update`, [id])).rows[0];
+    if (!existing) {
+      await client.query('rollback');
+      return res.status(404).json({ message: 'باقة الصلاحيات غير موجودة.' });
+    }
+
+    const name = req.body.name !== undefined ? String(req.body.name || '').trim() : existing.name;
+    const description = req.body.description !== undefined ? (String(req.body.description || '').trim() || null) : existing.description;
+    const scopeType = ['global', 'project', 'department', 'section', 'assigned'].includes(req.body.scope_type) ? req.body.scope_type : existing.scope_type;
+    const permissions = req.body.permissions && typeof req.body.permissions === 'object' ? req.body.permissions : existing.permissions;
+    const isDefaultForRole = req.body.is_default_for_role !== undefined ? req.body.is_default_for_role : existing.is_default_for_role;
+    const isActive = req.body.is_active !== undefined ? Boolean(req.body.is_active) : existing.is_active;
+
+    if (!name) {
+      await client.query('rollback');
+      return invalid(res, 'اسم باقة الصلاحيات مطلوب.');
+    }
+
+    if (isDefaultForRole && isDefaultForRole !== existing.is_default_for_role) {
+      await client.query(
+        `update permission_packages set is_default_for_role = null where is_default_for_role = $1 and id <> $2`,
+        [isDefaultForRole, id]
+      );
+    }
+
+    const { rows } = await client.query(
+      `update permission_packages
+          set name = $1, description = $2, scope_type = $3, permissions = $4,
+              is_default_for_role = $5, is_active = $6, updated_at = now()
+        where id = $7
+        returning *`,
+      [name, description, scopeType, JSON.stringify(permissions), isDefaultForRole, isActive, id]
+    );
+
+    await writeAudit(client, req, `تعديل باقة الصلاحيات: ${name}`, 'UPDATE', 'permission_packages', id, {
+      name, scope_type: scopeType, is_default_for_role: isDefaultForRole, is_active: isActive
+    });
+    await client.query('commit');
+    res.json(rows[0]);
+  } catch (error) {
+    await client.query('rollback');
+    next(error);
+  } finally { client.release(); }
+});
+
+app.post('/api/permission-packages/:id/clone', requireActive, async (req, res, next) => {
+  if (!isAdmin(req.user) && !can(req.user, 'Settings.Permissions')) return forbid(res);
+  const id = req.params.id;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return invalid(res, 'معرف الباقة غير صالح.');
+
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    const source = (await client.query(`select * from permission_packages where id = $1 and deleted_at is null`, [id])).rows[0];
+    if (!source) {
+      await client.query('rollback');
+      return res.status(404).json({ message: 'باقة الصلاحيات المصدر غير موجودة.' });
+    }
+
+    const newName = String(req.body.name || `${source.name} - مخصصة`).trim();
+    const newCode = `pkg_clone_${Date.now()}`;
+    const { rows } = await client.query(
+      `insert into permission_packages (code, name, description, scope_type, permissions, is_default_for_role, is_active, is_system)
+       values ($1, $2, $3, $4, $5, null, true, false)
+       returning *`,
+      [newCode, newName, source.description, source.scope_type, JSON.stringify(source.permissions || {})]
+    );
+
+    await writeAudit(client, req, `استنساخ باقة الصلاحيات: ${newName}`, 'CREATE', 'permission_packages', rows[0].id, {
+      cloned_from: source.id, source_name: source.name
+    });
+    await client.query('commit');
+    res.status(201).json(rows[0]);
+  } catch (error) {
+    await client.query('rollback');
+    next(error);
+  } finally { client.release(); }
+});
+
+app.delete('/api/permission-packages/:id', requireActive, async (req, res, next) => {
+  if (!isAdmin(req.user) && !can(req.user, 'Settings.Permissions')) return forbid(res);
+  const id = req.params.id;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return invalid(res, 'معرف الباقة غير صالح.');
+
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    const target = (await client.query(`select * from permission_packages where id = $1 and deleted_at is null for update`, [id])).rows[0];
+    if (!target) {
+      await client.query('rollback');
+      return res.status(404).json({ message: 'باقة الصلاحيات غير موجودة.' });
+    }
+    if (target.is_system) {
+      await client.query('rollback');
+      return res.status(400).json({ code: 'SYSTEM_PACKAGE_PROTECTED', message: 'لا يمكن حذف باقات النظام الأساسية.' });
+    }
+
+    const assignedCount = Number((await client.query(`select count(*)::int as cnt from profiles where package_id = $1 and deleted_at is null`, [id])).rows[0]?.cnt || 0);
+    if (assignedCount > 0) {
+      await client.query('rollback');
+      return res.status(409).json({
+        code: 'PACKAGE_IN_USE',
+        message: `لا يمكن حذف هذه الباقة لأنها مسندة إلى ${assignedCount} مستخدم. يرجى نقل المستخدمين إلى باقة أخرى أولاً.`
+      });
+    }
+
+    await client.query(`update permission_packages set deleted_at = now(), is_active = false where id = $1`, [id]);
+    await writeAudit(client, req, `حذف باقة الصلاحيات: ${target.name}`, 'DELETE', 'permission_packages', id);
+    await client.query('commit');
+    res.json({ success: true, message: 'تم حذف باقة الصلاحيات بنجاح.' });
+  } catch (error) {
+    await client.query('rollback');
+    next(error);
+  } finally { client.release(); }
+});
+
 app.get('/api/profiles', requireActive, async (req, res, next) => {
   if (!canAny(req.user, 'Settings.Users', 'USER_REGISTRATION_REVIEW', 'SECURITY_PUBLIC_REGISTRATION_VIEW') && !isAdmin(req.user)) return forbid(res);
   try {
@@ -830,17 +1092,28 @@ app.get('/api/profiles', requireActive, async (req, res, next) => {
               p.data_scope, p.status, p.permissions, p.avatar_url, p.request_notes,
               p.rejection_reason, p.request_info_note, p.approved_by, p.approved_at,
               p.reviewed_by, p.reviewed_at, p.created_at, p.updated_at,
+              p.package_id, p.scope_type, p.assigned_project_ids, p.assigned_department,
+              p.direct_permissions_allow, p.direct_permissions_deny,
+              pkg.name as package_name, pkg.code as package_code, pkg.scope_type as package_scope_type,
+              pkg.permissions as package_permissions,
               approver.name as approver_name, reviewer.name as reviewer_name,
               (select max(i.expires_at) from user_invitations i where i.profile_id=p.id
                 and i.accepted_at is null and i.revoked_at is null and i.expires_at>now()) as invitation_expires_at
        from profiles p
+       left join permission_packages pkg on pkg.id = p.package_id and pkg.deleted_at is null
        left join profiles approver on approver.id = p.approved_by
        left join profiles reviewer on reviewer.id = p.reviewed_by
        where p.deleted_at is null and ($1::boolean or p.org=$2)
        order by p.created_at desc, p.name`,
       [privileged, req.user.org]
     );
-    res.json(rows);
+
+    const enriched = rows.map(r => ({
+      ...r,
+      effective_permissions: resolveEffectivePermissions(r)
+    }));
+
+    res.json(enriched);
   } catch (error) { next(error); }
 });
 
@@ -854,6 +1127,13 @@ app.post('/api/profiles/invite', requireActive, async (req, res, next) => {
   const dataScope = ['my_data','my_team','my_department','my_project','all_data'].includes(req.body.data_scope) ? req.body.data_scope : 'my_data';
   const role = ENUMS.role.has(req.body.role) ? req.body.role : 'user';
   const org = ENUMS.org.has(req.body.org) ? req.body.org : 'wamy';
+  let packageId = req.body.package_id || null;
+  const scopeType = normalizeScopeType(req.body.scope_type, role);
+  const assignedProjectIds = Array.isArray(req.body.assigned_project_ids) ? req.body.assigned_project_ids : [];
+  const assignedDept = req.body.assigned_department || department || null;
+  const directAllow = req.body.direct_permissions_allow && typeof req.body.direct_permissions_allow === 'object' ? req.body.direct_permissions_allow : {};
+  const directDeny = req.body.direct_permissions_deny && typeof req.body.direct_permissions_deny === 'object' ? req.body.direct_permissions_deny : {};
+
   const requestedPermissions = req.body.permissions == null ? {} : req.body.permissions;
   const permissions = role === 'admin' ? ALL_PERMISSIONS : { ...NO_PERMISSIONS, ...requestedPermissions };
   const validationError = validatePatch('profiles', { name,email,position,department,team,data_scope:dataScope,role,org,permissions });
@@ -867,6 +1147,15 @@ app.post('/api/profiles/invite', requireActive, async (req, res, next) => {
   try {
     await client.query('begin');
     await client.query('select pg_advisory_xact_lock(hashtext($1))', [email]);
+
+    if (!packageId) {
+      const defaultPkg = (await client.query(
+        `select id from permission_packages where is_default_for_role = $1 and is_active = true and deleted_at is null limit 1`,
+        [role]
+      )).rows[0];
+      if (defaultPkg) packageId = defaultPkg.id;
+    }
+
     const existing = (await client.query(
       req.body.profile_id
         ? `select * from profiles where deleted_at is null and id=$1 and lower(email)=$2 for update`
@@ -883,12 +1172,18 @@ app.post('/api/profiles/invite', requireActive, async (req, res, next) => {
     }
     const profile = existing
       ? (await client.query(
-          `update profiles set name=$1,email=$2,password_hash=$3,role=$4,org=$5,position=$6,department=$7,team=$8,data_scope=$9,status='pending',permissions=$10
-            where id=$11 returning *`, [name,email,unusablePassword,role,org,position,department,team,dataScope,permissions,existing.id]
+          `update profiles set name=$1,email=$2,password_hash=$3,role=$4,org=$5,position=$6,department=$7,team=$8,data_scope=$9,status='pending',permissions=$10,
+                               package_id=$11,scope_type=$12,assigned_project_ids=$13,assigned_department=$14,direct_permissions_allow=$15,direct_permissions_deny=$16
+            where id=$17 returning *`,
+          [name,email,unusablePassword,role,org,position,department,team,dataScope,permissions,
+           packageId,scopeType,JSON.stringify(assignedProjectIds),assignedDept,JSON.stringify(directAllow),JSON.stringify(directDeny),existing.id]
         )).rows[0]
       : (await client.query(
-          `insert into profiles(name,email,password_hash,role,org,position,department,team,data_scope,status,permissions)
-           values($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',$10) returning *`, [name,email,unusablePassword,role,org,position,department,team,dataScope,permissions]
+          `insert into profiles(name,email,password_hash,role,org,position,department,team,data_scope,status,permissions,
+                               package_id,scope_type,assigned_project_ids,assigned_department,direct_permissions_allow,direct_permissions_deny)
+           values($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',$10,$11,$12,$13,$14,$15,$16) returning *`,
+          [name,email,unusablePassword,role,org,position,department,team,dataScope,permissions,
+           packageId,scopeType,JSON.stringify(assignedProjectIds),assignedDept,JSON.stringify(directAllow),JSON.stringify(directDeny)]
         )).rows[0];
     await client.query(
       `update user_invitations set revoked_at=now() where profile_id=$1 and accepted_at is null and revoked_at is null`,
@@ -900,7 +1195,7 @@ app.post('/api/profiles/invite', requireActive, async (req, res, next) => {
       [profile.id,tokenHash(token),req.user.id,INVITATION_HOURS]
     )).rows[0];
     await writeAudit(client, req, existing ? 'إعادة إصدار دعوة مستخدم' : 'إضافة مستخدم وإصدار دعوة', 'CREATE', 'profiles', profile.id, {
-      email,role,org,data_scope:dataScope,permissions,invitation_id: invitation.id,expires_at: invitation.expires_at
+      email,role,org,data_scope:dataScope,permissions,package_id:packageId,scope_type:scopeType,invitation_id: invitation.id,expires_at: invitation.expires_at
     });
     await client.query('commit');
     const base = PUBLIC_ORIGIN.replace(/\/$/, '');
@@ -959,6 +1254,7 @@ app.post('/api/auth/invitations/:token/accept', async (req, res, next) => {
     next(error);
   } finally { client.release(); }
 });
+
 app.patch('/api/profiles/:id', requireActive, async (req, res, next) => {
   const self = req.params.id === req.user.id;
   if (!self && !can(req.user, 'Settings.Users')) return forbid(res);
@@ -971,7 +1267,35 @@ app.patch('/api/profiles/:id', requireActive, async (req, res, next) => {
   if (validationError) return invalid(res, validationError);
   const allowed = self ? ['name','position','avatar_url']
     : isAdmin(req.user) ? FIELDS.profiles : ['name','email','org','position','status','avatar_url'];
-  const query = updateStatement('profiles', req.params.id, req.body, allowed);
+
+  const patch = { ...req.body };
+  // If role is changed and package_id not provided, auto-link default package for that role
+  if (isAdmin(req.user) && patch.role && !patch.package_id) {
+    const defPkg = (await pool.query(
+      `select id from permission_packages where is_default_for_role = $1 and is_active = true and deleted_at is null limit 1`,
+      [patch.role]
+    )).rows[0];
+    if (defPkg) patch.package_id = defPkg.id;
+  }
+
+  if (isAdmin(req.user)) {
+    if (patch.scope_type !== undefined) {
+      patch.scope_type = normalizeScopeType(patch.scope_type, patch.role);
+    }
+    if (patch.assigned_project_ids !== undefined) {
+      patch.assigned_project_ids = Array.isArray(patch.assigned_project_ids)
+        ? JSON.stringify(patch.assigned_project_ids)
+        : patch.assigned_project_ids;
+    }
+    if (patch.direct_permissions_allow !== undefined && typeof patch.direct_permissions_allow === 'object' && typeof patch.direct_permissions_allow !== 'string') {
+      patch.direct_permissions_allow = JSON.stringify(patch.direct_permissions_allow);
+    }
+    if (patch.direct_permissions_deny !== undefined && typeof patch.direct_permissions_deny === 'object' && typeof patch.direct_permissions_deny !== 'string') {
+      patch.direct_permissions_deny = JSON.stringify(patch.direct_permissions_deny);
+    }
+  }
+
+  const query = updateStatement('profiles', req.params.id, patch, allowed);
   if (!query) return res.status(400).json({ message: 'لا توجد حقول صالحة للتحديث.' });
   const client = await pool.connect();
   try {
@@ -988,7 +1312,7 @@ app.patch('/api/profiles/:id', requireActive, async (req, res, next) => {
       await client.query('rollback');
       return res.status(404).json({ message: 'المستخدم غير موجود.' });
     }
-    const changedFields = Object.keys(cleanObject(req.body, allowed));
+    const changedFields = Object.keys(cleanObject(patch, allowed));
     await writeAudit(client, req, 'تحديث مستخدم', 'UPDATE', 'profiles', rows[0].id, {
       changed_fields: changedFields,
       before: Object.fromEntries(changedFields.map(key => [key, before && before[key]])),
@@ -1001,6 +1325,7 @@ app.patch('/api/profiles/:id', requireActive, async (req, res, next) => {
     next(error);
   } finally { client.release(); }
 });
+
 app.delete('/api/profiles/:id', requireActive, async (req, res, next) => {
   if (!isAdmin(req.user) || req.params.id === req.user.id) return forbid(res);
   const client = await pool.connect();
@@ -1066,31 +1391,40 @@ app.post('/api/profiles/:id/approve', requireActive, async (req, res, next) => {
       await client.query('rollback');
       return res.status(404).json({ message: 'المستخدم غير موجود.' });
     }
-    const defaultPerms = req.body.permissions || {
-      ...NO_PERMISSIONS,
-      'Dashboard.View': true,
-      'MainPlan.View': true,
-      'Products.View': true,
-      'Tasks.View': true,
-      'Timeline.View': true,
-      'Calendar.View': true,
-      'Files.View': true,
-      'Reports.View': true
-    };
+
     const newRole = req.body.role || target.role || 'user';
     const newOrg = req.body.org || target.org || 'wamy';
     const newPosition = req.body.position !== undefined ? (String(req.body.position || '').trim() || null) : target.position;
     const newDepartment = req.body.department !== undefined ? (String(req.body.department || '').trim() || null) : target.department;
     const newTeam = req.body.team !== undefined ? (String(req.body.team || '').trim() || null) : target.team;
     const newDataScope = req.body.data_scope || target.data_scope || 'my_data';
-    const permissions = newRole === 'admin' ? ALL_PERMISSIONS : defaultPerms;
+    
+    let packageId = req.body.package_id || target.package_id || null;
+    const scopeType = normalizeScopeType(req.body.scope_type || target.scope_type, newRole);
+    const assignedProjectIds = req.body.assigned_project_ids !== undefined ? req.body.assigned_project_ids : target.assigned_project_ids || [];
+    const assignedDept = req.body.assigned_department !== undefined ? req.body.assigned_department : (target.assigned_department || newDepartment || null);
+    const directAllow = req.body.direct_permissions_allow || target.direct_permissions_allow || {};
+    const directDeny = req.body.direct_permissions_deny || target.direct_permissions_deny || {};
+
+    if (!packageId) {
+      const defaultPkg = (await client.query(
+        `select id from permission_packages where is_default_for_role = $1 and is_active = true and deleted_at is null limit 1`,
+        [newRole]
+      )).rows[0];
+      if (defaultPkg) packageId = defaultPkg.id;
+    }
+
+    const permissions = newRole === 'admin' ? ALL_PERMISSIONS : (req.body.permissions || target.permissions || NO_PERMISSIONS);
     const { rows } = await client.query(
       `update profiles
           set status='active', role=$1, org=$2, position=$3, department=$4, team=$5,
               permissions=$6, data_scope=$7, approved_by=$8, approved_at=now(),
-              reviewed_by=$8, reviewed_at=now(), updated_at=now()
-        where id=$9 returning *`,
-      [newRole, newOrg, newPosition, newDepartment, newTeam, JSON.stringify(permissions), newDataScope, req.user.id, targetId]
+              reviewed_by=$8, reviewed_at=now(), package_id=$9, scope_type=$10,
+              assigned_project_ids=$11, assigned_department=$12, direct_permissions_allow=$13,
+              direct_permissions_deny=$14, updated_at=now()
+        where id=$15 returning *`,
+      [newRole, newOrg, newPosition, newDepartment, newTeam, JSON.stringify(permissions), newDataScope, req.user.id,
+       packageId, scopeType, JSON.stringify(assignedProjectIds), assignedDept, JSON.stringify(directAllow), JSON.stringify(directDeny), targetId]
     );
     await writeAudit(client, req, `اعتماد وتفعيل حساب المستخدم: ${target.name}`, 'AUTH', 'profiles', targetId, {
       previous_status: target.status,
@@ -1101,6 +1435,8 @@ app.post('/api/profiles/:id/approve', requireActive, async (req, res, next) => {
       department: newDepartment,
       team: newTeam,
       data_scope: newDataScope,
+      package_id: packageId,
+      scope_type: scopeType,
       approved_by: req.user.id
     });
     await client.query('commit');
@@ -1191,15 +1527,6 @@ app.get('/api/organizations', requireActive, async (req, res, next) => {
 
     let whereClause = `where o.deleted_at is null and ($1::boolean or o.is_active = true)`;
     const params = [includeInactive];
-
-    if (!isFullAdmin && !canManageOrgs) {
-      if (req.user && req.user.org) {
-        params.push(req.user.org.toLowerCase());
-        whereClause += ` and lower(o.code) = lower($${params.length})`;
-      } else {
-        return res.json([]);
-      }
-    }
 
     const { rows } = await pool.query(
       `select o.*,
@@ -1367,6 +1694,10 @@ app.get('/api/projects', requireActive, async (req, res, next) => {
   try {
     const privileged = hasAllData(req.user);
     const includeSystem = req.query.include_system === 'true';
+    const assignedProjects = Array.isArray(req.user.assigned_project_ids)
+      ? req.user.assigned_project_ids
+      : (typeof req.user.assigned_project_ids === 'string' ? JSON.parse(req.user.assigned_project_ids || '[]') : []);
+    const scope = req.user.scope_type || req.user.data_scope || 'my_data';
     const { rows } = await pool.query(
       `select p.*,
               coalesce(plans.cnt, 0)::int as plans_count,
@@ -1417,13 +1748,14 @@ app.get('/api/projects', requireActive, async (req, res, next) => {
           and (p.is_system = false or $5::boolean)
           and ($1::boolean
             or p.manager_id = $3
+            or p.id = any($6::uuid[])
             or exists (select 1 from project_team_assignments pta where pta.project_id = p.id and pta.team_head_id = $3 and pta.is_active = true and pta.deleted_at is null)
             or exists (select 1 from project_team_members ptm join project_team_assignments pta on pta.id = ptm.assignment_id where pta.project_id = p.id and ptm.user_id = $3 and ptm.is_active = true and ptm.deleted_at is null and pta.deleted_at is null)
-            or ($4 = 'my_project' and p.manager_id = $3)
-            or ($4 in ('my_team', 'my_department') and p.org = $2)
+            or ($4 in ('my_project', 'project') and (p.manager_id = $3 or p.id = any($6::uuid[])))
+            or ($4 in ('my_team', 'my_department', 'department', 'section') and p.org = $2)
           )
         order by coalesce(p.hierarchical_code, p.code)`,
-      [privileged, req.user.org, req.user.id, req.user.data_scope || 'my_data', includeSystem]
+      [privileged, req.user.org, req.user.id, scope, includeSystem, assignedProjects]
     );
     res.json(rows);
   } catch (error) { next(error); }
@@ -2586,14 +2918,31 @@ async function normalizeTaskPlanLink(req) {
 
 async function canAccessTask(user, taskId) {
   if (hasAllData(user)) return true;
+  const assignedProjects = Array.isArray(user.assigned_project_ids)
+    ? user.assigned_project_ids
+    : (typeof user.assigned_project_ids === 'string' ? JSON.parse(user.assigned_project_ids || '[]') : []);
+  const userDept = user.assigned_department || user.department;
+  const scope = user.scope_type || user.data_scope || 'assigned';
+
   const { rowCount } = await pool.query(
-    `select 1 from tasks t where t.id=$1 and t.deleted_at is null and (
-       t.assignee_id=$2 or exists(select 1 from task_assignees ta where ta.task_id=t.id and ta.user_id=$2)
-       or ($6::text='my_project' and exists(select 1 from projects pr where pr.id=t.project_id and pr.manager_id=$2))
-       or ($6::text='my_department' and $4::text is not null and exists(select 1 from task_assignees ta join profiles ap on ap.id=ta.user_id where ta.task_id=t.id and ap.org=$3 and ap.department=$4::text))
-       or ($6::text='my_team' and $5::text is not null and exists(select 1 from task_assignees ta join profiles ap on ap.id=ta.user_id where ta.task_id=t.id and ap.org=$3 and ap.team=$5::text))
-     )`,
-    [taskId,user.id,user.org,user.department,user.team,user.data_scope || 'my_data']
+    `select 1 from tasks t
+       left join projects pr on pr.id = t.project_id
+      where t.id = $1 and t.deleted_at is null and (
+        t.assignee_id = $2
+        or exists(select 1 from task_assignees ta where ta.task_id = t.id and ta.user_id = $2)
+        or ($3::text = 'global')
+        or ($3::text in ('project', 'my_project', 'مشروع') and (
+              pr.manager_id = $2
+              or t.project_id = any($7::uuid[])
+              or exists(select 1 from project_team_assignments pta where pta.project_id = t.project_id and pta.team_head_id = $2 and pta.is_active = true and pta.deleted_at is null)
+           ))
+        or ($3::text in ('department', 'section', 'my_department', 'إدارة') and $5::text is not null and (
+              exists(select 1 from task_assignees ta join profiles ap on ap.id = ta.user_id where ta.task_id = t.id and ap.org = $4 and (ap.department = $5::text or ap.assigned_department = $5::text))
+              or (t.org = $4)
+           ))
+        or ($3::text = 'my_team' and $6::text is not null and exists(select 1 from task_assignees ta join profiles ap on ap.id = ta.user_id where ta.task_id = t.id and ap.org = $4 and ap.team = $6::text))
+      )`,
+    [taskId, user.id, scope, user.org, userDept, user.team, assignedProjects]
   );
   return rowCount > 0;
 }
