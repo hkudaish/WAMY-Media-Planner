@@ -3666,8 +3666,12 @@
 
         const handleSubmit = async (e) => {
             e.preventDefault();
+            if (!currentPassword) {
+                toast('يرجى إدخال كلمة المرور الحالية', 'error');
+                return;
+            }
             if (newPassword.length < 12) {
-                toast('يجب أن تكون كلمة المرور الجديدة 12 حرفاً على الأقل', 'error');
+                toast('يجب أن تحتوي كلمة المرور على 12 حرفا ورمزا ورقما', 'error');
                 return;
             }
             if (newPassword !== confirmPassword) {
@@ -3680,7 +3684,7 @@
                     current_password: currentPassword,
                     new_password: newPassword
                 });
-                toast('تم تغيير كلمة المرور بنجاح وتسجيل الخروج من الجلسات الأخرى', 'success');
+                toast('تم تغيير كلمة المرور بنجاح وتسجيل الخروج من الجلسات الأخرى، وتم إشعار الإدارة بذلك', 'success');
                 onClose();
             } catch (err) {
                 toast(err.message || 'تعذر تغيير كلمة المرور', 'error');
@@ -3691,24 +3695,29 @@
 
         return (
             <Modal open={open} onClose={onClose} title="تغيير كلمة المرور الخاصة بك" size="md"
-                   subtitle="تغيير كلمة المرور الشخصية مع إبطال الجلسات الأخرى النشطة تلقائياً"
+                   subtitle="تعديل كلمة المرور الشخصية مع إرسال تنبيه أمني لمسؤول النظام وإبطال الجلسات الأخرى النشطة تلقائياً"
                    footer={
                        <React.Fragment>
-                           <button type="button" onClick={onClose} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-sm font-bold">إلغاء</button>
-                           <button type="submit" form="change-pw-form" disabled={busy} className="px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white rounded-xl text-sm font-bold">
-                               {busy && <i className="fa-solid fa-circle-notch fa-spin me-1.5"></i>}تغيير كلمة المرور
+                           <button type="button" onClick={onClose} disabled={busy} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-sm font-bold">إلغاء</button>
+                           <button type="submit" form="change-pw-form" disabled={busy} className="px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white rounded-xl text-sm font-bold flex items-center gap-2 shadow-lg shadow-blue-600/30">
+                               {busy ? <i className="fa-solid fa-circle-notch fa-spin"></i> : <i className="fa-solid fa-key"></i>}
+                               <span>تأكيد تغيير كلمة المرور</span>
                            </button>
                        </React.Fragment>
                    }>
                 <form id="change-pw-form" onSubmit={handleSubmit} className="space-y-4">
-                    <Field label="كلمة المرور الحالية" required>
-                        <PasswordInput value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} required placeholder="••••••••••••" autoComplete="current-password" />
+                    <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-xl text-blue-200 text-xs flex items-start gap-2.5">
+                        <i className="fa-solid fa-shield-halved text-blue-400 text-base mt-0.5 shrink-0"></i>
+                        <span>أدخل كلمة المرور القديمة (الحالية)، ثم اكتب كلمة المرور الجديدة وقم بتأكيدها. سيتم تسجيل خروجك من الأجهزة الأخرى وإشعار مسؤول النظام تلقائياً.</span>
+                    </div>
+                    <Field label="كلمة المرور القديمة (الحالية)" required>
+                        <PasswordInput value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} required placeholder="أدخل كلمة المرور القديمة" autoComplete="current-password" />
                     </Field>
                     <Field label="كلمة المرور الجديدة" required hint="يجب أن تحتوي كلمة المرور على 12 حرفا ورمزا ورقما">
-                        <PasswordInput value={newPassword} onChange={e => setNewPassword(e.target.value)} required minLength="12" placeholder="••••••••••••" autoComplete="new-password" />
+                        <PasswordInput value={newPassword} onChange={e => setNewPassword(e.target.value)} required minLength="12" placeholder="أدخل كلمة المرور الجديدة" autoComplete="new-password" />
                     </Field>
                     <Field label="تأكيد كلمة المرور الجديدة" required>
-                        <PasswordInput value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required minLength="12" placeholder="••••••••••••" autoComplete="new-password" />
+                        <PasswordInput value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required minLength="12" placeholder="أعد إدخال كلمة المرور الجديدة" autoComplete="new-password" />
                     </Field>
                 </form>
             </Modal>
@@ -5854,7 +5863,7 @@
         );
     }
 
-    function SettingsScreen({ data, profile, settings, onSave, saving, drive, driveConnected, onConnect, toast, onEditUser, onDeleteUser, onInviteUser, onResetPasswordUser, onApproveUser, onEditProject, onCreateProject, onSafeDeleteProject, onManageProjectTeam, onOpenImport, api, refresh }) {
+    function SettingsScreen({ data, profile, settings, onSave, saving, drive, driveConnected, onConnect, toast, onEditUser, onDeleteUser, onInviteUser, onResetPasswordUser, onApproveUser, onEditProject, onCreateProject, onSafeDeleteProject, onManageProjectTeam, onOpenImport, onChangePassword, api, refresh }) {
         const mayManageDrive = can(profile, 'Settings.Integrations');
         const mayManageUsers = can(profile, 'Settings.Users');
         const mayManageOrgs = canAny(profile, 'Organizations.View', 'Organizations.Create', 'Organizations.Edit', 'Settings.General') || isAdmin(profile);
@@ -5877,7 +5886,15 @@
         return (
             <div className="space-y-6">
                 <SectionHeading icon="fa-sliders" title="إعدادات النظام وإدارة البيانات"
-                                description="إدارة هيكل المشاريع، الجهات، النسخ الاحتياطي، سجل التدقيق، تكاملات النظام، والمستخدمين من مكان واحد." />
+                                description="إدارة هيكل المشاريع، الجهات، النسخ الاحتياطي، سجل التدقيق، تكاملات النظام، والمستخدمين من مكان واحد.">
+                    {onChangePassword && (
+                        <button type="button" onClick={onChangePassword}
+                                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold flex items-center gap-2 border border-slate-700 transition-colors shadow-sm">
+                            <i className="fa-solid fa-key text-blue-400"></i>
+                            <span>تغيير كلمة المرور الخاصة بي</span>
+                        </button>
+                    )}
+                </SectionHeading>
 
                 {sections.length > 1 && (
                     <div className="inline-flex flex-wrap gap-1 p-1 bg-slate-900 border border-slate-800 rounded-xl no-print">
@@ -11445,6 +11462,7 @@
                         {activeTab === 'settings'  && <SettingsScreen {...screenProps} data={data} settings={settings} onSave={saveSettings} saving={busy}
                                                           drive={drive} driveConnected={driveConnected}
                                                           onConnect={connectDrive} toast={toast} api={api} refresh={refresh}
+                                                          onChangePassword={() => setChangePasswordOpen(true)}
                                                           onEditUser={(u) => setUserModal({ initial: u })}
                                                           onDeleteUser={deleteUser}
                                                           onInviteUser={(u) => setInviteUserModal({ initial: u })}

@@ -784,7 +784,7 @@ app.post('/api/auth/change-password', requireSession, requireActive, async (req,
   const client = await pool.connect();
   try {
     await client.query('begin');
-    const userRow = (await client.query('select id, password_hash, email from profiles where id=$1 for update', [req.user.id])).rows[0];
+    const userRow = (await client.query('select id, name, password_hash, email, org from profiles where id=$1 for update', [req.user.id])).rows[0];
     if (!userRow || !(await bcrypt.compare(currentPassword, userRow.password_hash))) {
       await client.query('rollback');
       return res.status(401).json({ code: 'INVALID_CREDENTIALS', message: 'كلمة المرور الحالية غير صحيحة.' });
@@ -794,9 +794,22 @@ app.post('/api/auth/change-password', requireSession, requireActive, async (req,
     if (req.sessionToken) {
       await client.query('delete from sessions where user_id=$1 and token_hash<>$2', [req.user.id, tokenHash(req.sessionToken)]);
     }
-    await writeAudit(client, req, 'تغيير كلمة المرور', 'AUTH', 'profiles', req.user.id, { email: userRow.email });
+    await writeAudit(
+      client,
+      req,
+      `تنبيه أمني: قام المستخدم «${userRow.name || userRow.email}» بتعديل كلمة المرور الخاصة به`,
+      'AUTH',
+      'profiles',
+      req.user.id,
+      {
+        email: userRow.email,
+        name: userRow.name,
+        action_type: 'user_password_changed',
+        alert: 'قام المستخدم بتعديل كلمة المرور الخاصة به بنجاح وإلغاء كافة الجلسات الأخرى النشطة.'
+      }
+    );
     await client.query('commit');
-    res.json({ success: true, message: 'تم تغيير كلمة المرور بنجاح.' });
+    res.json({ success: true, message: 'تم تغيير كلمة المرور بنجاح وتسجيل الخروج من الجلسات الأخرى.' });
   } catch (error) {
     await client.query('rollback');
     next(error);
