@@ -426,9 +426,45 @@ function validatePatch(name, body, creating = false) {
   if (start && body.due_date && body.due_date < start) return 'تاريخ الاستحقاق لا يمكن أن يسبق تاريخ البدء.';
   if (body.email != null && !/^\S+@\S+\.\S+$/.test(body.email.trim())) return 'البريد الإلكتروني غير صالح.';
   if (body.permissions != null) {
-    if (typeof body.permissions !== 'object' || Array.isArray(body.permissions)
-      || Object.keys(body.permissions).some(key => !(key in ALL_PERMISSIONS) || typeof body.permissions[key] !== 'boolean')) {
+    let p = body.permissions;
+    if (typeof p === 'string') {
+      try { p = JSON.parse(p); body.permissions = p; } catch (e) { return 'بنية الصلاحيات غير صالحة.'; }
+    }
+    if (typeof p !== 'object' || p === null || Array.isArray(p)) {
       return 'بنية الصلاحيات غير صالحة.';
+    }
+    for (const [k, v] of Object.entries(p)) {
+      if (typeof v !== 'boolean') {
+        return 'بنية الصلاحيات غير صالحة.';
+      }
+    }
+  }
+  if (body.direct_permissions_allow != null) {
+    let p = body.direct_permissions_allow;
+    if (typeof p === 'string') {
+      try { p = JSON.parse(p); body.direct_permissions_allow = p; } catch (e) { return 'بنية الصلاحيات المباشرة غير صالحة.'; }
+    }
+    if (typeof p !== 'object' || p === null || Array.isArray(p)) {
+      return 'بنية الصلاحيات المباشرة غير صالحة.';
+    }
+    for (const [k, v] of Object.entries(p)) {
+      if (typeof v !== 'boolean') {
+        return 'بنية الصلاحيات المباشرة غير صالحة.';
+      }
+    }
+  }
+  if (body.direct_permissions_deny != null) {
+    let p = body.direct_permissions_deny;
+    if (typeof p === 'string') {
+      try { p = JSON.parse(p); body.direct_permissions_deny = p; } catch (e) { return 'بنية الصلاحيات المباشرة غير صالحة.'; }
+    }
+    if (typeof p !== 'object' || p === null || Array.isArray(p)) {
+      return 'بنية الصلاحيات المباشرة غير صالحة.';
+    }
+    for (const [k, v] of Object.entries(p)) {
+      if (typeof v !== 'boolean') {
+        return 'بنية الصلاحيات المباشرة غير صالحة.';
+      }
     }
   }
   if (body.data_scope != null && !['my_data','my_team','my_department','my_project','all_data'].includes(body.data_scope)) return 'نطاق البيانات غير صالح.';
@@ -1352,11 +1388,14 @@ app.patch('/api/profiles/:id', requireActive, async (req, res, next) => {
         ? JSON.stringify(patch.assigned_project_ids)
         : patch.assigned_project_ids;
     }
-    if (patch.direct_permissions_allow !== undefined && typeof patch.direct_permissions_allow === 'object' && typeof patch.direct_permissions_allow !== 'string') {
+    if (patch.direct_permissions_allow !== undefined && typeof patch.direct_permissions_allow === 'object' && patch.direct_permissions_allow !== null && typeof patch.direct_permissions_allow !== 'string') {
       patch.direct_permissions_allow = JSON.stringify(patch.direct_permissions_allow);
     }
-    if (patch.direct_permissions_deny !== undefined && typeof patch.direct_permissions_deny === 'object' && typeof patch.direct_permissions_deny !== 'string') {
+    if (patch.direct_permissions_deny !== undefined && typeof patch.direct_permissions_deny === 'object' && patch.direct_permissions_deny !== null && typeof patch.direct_permissions_deny !== 'string') {
       patch.direct_permissions_deny = JSON.stringify(patch.direct_permissions_deny);
+    }
+    if (patch.permissions !== undefined && typeof patch.permissions === 'object' && patch.permissions !== null && typeof patch.permissions !== 'string') {
+      patch.permissions = JSON.stringify(patch.permissions);
     }
   }
 

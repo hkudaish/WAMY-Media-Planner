@@ -11718,7 +11718,16 @@
                            </button>
                        </React.Fragment>
                    }>
-                <form id="user-form" onSubmit={(e) => { e.preventDefault(); onSubmit(form); }} className="space-y-4">
+                <form id="user-form" onSubmit={(e) => {
+                    e.preventDefault();
+                    const cleanPerms = {};
+                    if (form.permissions && typeof form.permissions === 'object') {
+                        Object.entries(form.permissions).forEach(([k, v]) => {
+                            if (typeof v === 'boolean') cleanPerms[k] = v;
+                        });
+                    }
+                    onSubmit({ ...form, permissions: cleanPerms });
+                }} className="space-y-4">
                     {initial && initial.status === 'pending' && (
                         <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-200 text-xs flex items-center gap-2">
                             <i className="fa-solid fa-hourglass-half text-amber-400"></i>
