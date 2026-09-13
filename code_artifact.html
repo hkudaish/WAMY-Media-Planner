@@ -1252,6 +1252,38 @@
 
     const inputClass = 'w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white text-sm focus:border-blue-500 focus:outline-none placeholder:text-slate-600';
 
+    function PasswordInput({ value, onChange, placeholder = '••••••••••••', required = false, minLength, autoComplete, className = '', id, name, disabled = false }) {
+        const [visible, setVisible] = useState(false);
+        return (
+            <div className="relative w-full">
+                <input
+                    type={visible ? 'text' : 'password'}
+                    className={cx(inputClass, 'ps-3.5 pe-11 font-mono', className)}
+                    value={value}
+                    onChange={onChange}
+                    placeholder={placeholder}
+                    required={required}
+                    minLength={minLength}
+                    autoComplete={autoComplete}
+                    id={id}
+                    name={name}
+                    disabled={disabled}
+                    dir="ltr"
+                />
+                <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => setVisible(!visible)}
+                    aria-label={visible ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
+                    title={visible ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
+                    className="absolute inset-y-0 end-0 px-3.5 flex items-center text-slate-400 hover:text-slate-200 transition-colors focus:outline-none cursor-pointer"
+                >
+                    <i className={cx('fa-solid text-sm', visible ? 'fa-eye-slash text-blue-400' : 'fa-eye')}></i>
+                </button>
+            </div>
+        );
+    }
+
     function normalizeArabic(text) {
         if (!text) return '';
         return String(text)
@@ -1743,17 +1775,17 @@
                             </Field>
 
                             <Field label="كلمة المرور" required
-                                   hint={mode === 'signup' ? 'اثنا عشر حرفًا على الأقل.' : null}>
-                                <input type="password" className={inputClass} value={form.password} onChange={set('password')}
-                                       required minLength={mode === 'signup' ? 12 : 1}
-                                       autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} />
+                                   hint={mode === 'signup' ? 'يجب أن تحتوي كلمة المرور على 12 حرفا ورمزا ورقما' : null}>
+                                <PasswordInput value={form.password} onChange={set('password')}
+                                               required minLength={mode === 'signup' ? 12 : 1}
+                                               autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} />
                             </Field>
 
                             {mode === 'signup' && (
                                 <React.Fragment>
                                     <Field label="تأكيد كلمة المرور" required>
-                                        <input type="password" className={inputClass} value={form.confirmPassword} onChange={set('confirmPassword')}
-                                               required minLength={12} autoComplete="new-password" />
+                                        <PasswordInput value={form.confirmPassword} onChange={set('confirmPassword')}
+                                                       required minLength={12} autoComplete="new-password" />
                                     </Field>
                                     <Field label="سبب طلب الحساب / ملاحظات" hint="اختياري">
                                         <textarea className={cx(inputClass, 'h-16 resize-none')} value={form.request_notes} onChange={set('request_notes')} placeholder="أي تفاصيل ترغب في إضافتها لمسؤول النظام..." maxLength={500} />
@@ -1806,8 +1838,8 @@
                     : invitation && <form onSubmit={submit} className="space-y-4">
                         <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl"><strong className="block text-white">{invitation.name}</strong><span className="block text-xs text-slate-400 font-mono" dir="ltr">{invitation.email}</span><span className="block text-xs text-slate-500 mt-1">{lookup(ROLES,invitation.role,'user').label} · {org(invitation.org).label}</span></div>
                         {error && <p role="alert" className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-300 text-sm">{error}</p>}
-                        <Field label="كلمة المرور الجديدة" required hint="12 حرفًا على الأقل."><input type="password" className={inputClass} value={password} onChange={event => setPassword(event.target.value)} minLength="12" required autoComplete="new-password" /></Field>
-                        <Field label="تأكيد كلمة المرور" required><input type="password" className={inputClass} value={confirm} onChange={event => setConfirm(event.target.value)} minLength="12" required autoComplete="new-password" /></Field>
+                        <Field label="كلمة المرور الجديدة" required hint="يجب أن تحتوي كلمة المرور على 12 حرفا ورمزا ورقما"><PasswordInput value={password} onChange={event => setPassword(event.target.value)} minLength="12" required autoComplete="new-password" /></Field>
+                        <Field label="تأكيد كلمة المرور" required><PasswordInput value={confirm} onChange={event => setConfirm(event.target.value)} minLength="12" required autoComplete="new-password" /></Field>
                         <button disabled={busy} className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold rounded-xl">{busy && <i className="fa-solid fa-circle-notch fa-spin me-2"></i>}تفعيل الحساب والدخول</button>
                     </form>}
             </div>
@@ -3670,13 +3702,13 @@
                    }>
                 <form id="change-pw-form" onSubmit={handleSubmit} className="space-y-4">
                     <Field label="كلمة المرور الحالية" required>
-                        <input type="password" className={inputClass} value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} required placeholder="••••••••••••" />
+                        <PasswordInput value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} required placeholder="••••••••••••" autoComplete="current-password" />
                     </Field>
-                    <Field label="كلمة المرور الجديدة" required hint="12 حرفاً على الأقل">
-                        <input type="password" className={inputClass} value={newPassword} onChange={e => setNewPassword(e.target.value)} required minLength="12" placeholder="••••••••••••" />
+                    <Field label="كلمة المرور الجديدة" required hint="يجب أن تحتوي كلمة المرور على 12 حرفا ورمزا ورقما">
+                        <PasswordInput value={newPassword} onChange={e => setNewPassword(e.target.value)} required minLength="12" placeholder="••••••••••••" autoComplete="new-password" />
                     </Field>
                     <Field label="تأكيد كلمة المرور الجديدة" required>
-                        <input type="password" className={inputClass} value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required minLength="12" placeholder="••••••••••••" />
+                        <PasswordInput value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required minLength="12" placeholder="••••••••••••" autoComplete="new-password" />
                     </Field>
                 </form>
             </Modal>
@@ -3737,11 +3769,11 @@
                         <i className="fa-solid fa-triangle-exclamation text-amber-400 mt-0.5"></i>
                         <span>سيتم إلغاء صلاحية كافة الجلسات الحالية للمستخدم <strong>{user.name} ({user.email})</strong> وسيتعين عليه تسجيل الدخول بكلمة المرور الجديدة.</span>
                     </div>
-                    <Field label="كلمة المرور الجديدة" required hint="12 حرفاً على الأقل">
-                        <input type="password" className={inputClass} value={newPassword} onChange={e => setNewPassword(e.target.value)} required minLength="12" placeholder="••••••••••••" />
+                    <Field label="كلمة المرور الجديدة" required hint="يجب أن تحتوي كلمة المرور على 12 حرفا ورمزا ورقما">
+                        <PasswordInput value={newPassword} onChange={e => setNewPassword(e.target.value)} required minLength="12" placeholder="••••••••••••" autoComplete="new-password" />
                     </Field>
                     <Field label="تأكيد كلمة المرور الجديدة" required>
-                        <input type="password" className={inputClass} value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required minLength="12" placeholder="••••••••••••" />
+                        <PasswordInput value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required minLength="12" placeholder="••••••••••••" autoComplete="new-password" />
                     </Field>
                 </form>
             </Modal>
