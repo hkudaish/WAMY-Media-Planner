@@ -548,7 +548,8 @@
             profiles: {
                 ...resource('profiles'), mine: () => request('/profiles/me'),
                 invite: (values) => request('/profiles/invite', { method: 'POST', body: JSON.stringify(values) }),
-                resetPassword: (id, payload) => request('/profiles/' + encodeURIComponent(id) + '/reset-password', { method: 'POST', body: JSON.stringify(payload) })
+                resetPassword: (id, payload) => request('/profiles/' + encodeURIComponent(id) + '/reset-password', { method: 'POST', body: JSON.stringify(payload) }),
+                approve: (id, payload) => request('/profiles/' + encodeURIComponent(id) + '/approve', { method: 'POST', body: JSON.stringify(payload || {}) })
             },
             organizations: {
                 ...resource('organizations'),
@@ -1631,7 +1632,7 @@
                     if (err) throw err;
                     setNotice(data && data.firstAdmin
                         ? 'تم إنشاء أول حساب كمدير نظام نشط. يمكنك تسجيل الدخول الآن.'
-                        : 'تم إنشاء الحساب. انتظر تفعيله من مدير النظام، ثم سجّل الدخول.');
+                        : 'تم إنشاء حسابك بنجاح وهو قيد المراجعة والاعتماد من قبل مدير النظام. يرجى الانتظار لحين منحك حق الوصول.');
                     setMode('login');
                 }
             } catch (err) {
@@ -1753,10 +1754,13 @@
 
     function translateAuthError(err) {
         const message = String((err && err.message) || err || '');
+        if (err && err.code === 'ACCOUNT_PENDING') return err.message || 'تم إنشاء حسابك بنجاح وهو قيد المراجعة والاعتماد من قبل مدير النظام. يرجى الانتظار لحين منحك حق الوصول.';
+        if (/ACCOUNT_PENDING/i.test(message) || /قيد المراجعة والاعتماد/i.test(message)) return 'تم إنشاء حسابك بنجاح وهو قيد المراجعة والاعتماد من قبل مدير النظام. يرجى الانتظار لحين منحك حق الوصول.';
+        if (/ACCOUNT_INACTIVE/i.test(message) || /غير نشط/i.test(message)) return 'هذا الحساب غير نشط أو تم تعطيله. يرجى التواصل مع إدارة النظام.';
         if (/Invalid login credentials/i.test(message)) return 'البريد الإلكتروني أو كلمة المرور غير صحيحة.';
         if (/User already registered/i.test(message))   return 'هذا البريد مسجل مسبقًا.';
         if (/rate limit|too many/i.test(message))       return 'محاولات كثيرة خلال وقت قصير. انتظر قليلًا ثم أعد المحاولة.';
-        if (/Password should be/i.test(message))        return 'كلمة المرور ضعيفة جدًا. استخدم عشرة أحرف على الأقل.';
+        if (/Password should be/i.test(message))        return 'كلمة المرور ضعيفة جدًا. استخدم اثني عشر حرفًا على الأقل.';
         return message || 'تعذّر إتمام العملية.';
     }
 
@@ -2535,7 +2539,7 @@
         );
     }
 
-    function UsersScreen({ data, profile, onEdit, onDelete, onInvite, onResetPassword }) {
+    function UsersScreen({ data, profile, onEdit, onDelete, onInvite, onResetPassword, onApprove }) {
         const { profiles } = data;
         const mayEdit = isAdmin(profile) || can(profile, 'Settings.Users');
         const mayDelete = isAdmin(profile);
@@ -2603,6 +2607,12 @@
                                             <td className="p-4 no-print">
                                                 {mayEdit ? (
                                                     <div className="flex items-center justify-center gap-1.5">
+                                                        {u.status === 'pending' && onApprove && (
+                                                            <button onClick={() => onApprove(u)} title="اعتماد وتفعيل المستخدم فوراً" aria-label={`اعتماد ${u.name}`}
+                                                                    className="p-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 rounded-lg">
+                                                                <i className="fa-solid fa-user-check"></i>
+                                                            </button>
+                                                        )}
                                                         <button onClick={() => onEdit(u)} aria-label={`تعديل ${u.name}`}
                                                                 className="p-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded-lg" title="تعديل المستخدم">
                                                             <i className="fa-solid fa-pen-to-square"></i>
@@ -2610,7 +2620,7 @@
                                                         {mayResetPw && onResetPassword && (
                                                             <button onClick={() => onResetPassword(u)} title="إعادة تعيين كلمة المرور" aria-label={`إعادة تعيين كلمة المرور لـ ${u.name}`}
                                                                     className="p-2 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 rounded-lg">
-                                                                <i className="fa-solid fa-key"></i>
+                                                            <i className="fa-solid fa-key"></i>
                                                             </button>
                                                         )}
                                                         {isAdmin(profile) && u.status === 'pending' && (
@@ -4844,7 +4854,7 @@
         );
     }
 
-    function SettingsScreen({ data, profile, settings, onSave, saving, drive, driveConnected, onConnect, toast, onEditUser, onDeleteUser, onInviteUser, onResetPasswordUser, onEditProject, onCreateProject, onSafeDeleteProject, onManageProjectTeam, onOpenImport, api, refresh }) {
+    function SettingsScreen({ data, profile, settings, onSave, saving, drive, driveConnected, onConnect, toast, onEditUser, onDeleteUser, onInviteUser, onResetPasswordUser, onApproveUser, onEditProject, onCreateProject, onSafeDeleteProject, onManageProjectTeam, onOpenImport, api, refresh }) {
         const mayManageDrive = can(profile, 'Settings.Integrations');
         const mayManageUsers = can(profile, 'Settings.Users');
         const mayManageOrgs = canAny(profile, 'Organizations.View', 'Organizations.Create', 'Organizations.Edit', 'Settings.General') || isAdmin(profile);
@@ -4912,7 +4922,7 @@
                                           onConnect={onConnect} toast={toast} />
                 )}
                 {section === 'users' && mayManageUsers && (
-                    <UsersScreen data={data} profile={profile} onEdit={onEditUser} onDelete={onDeleteUser} onInvite={onInviteUser} onResetPassword={onResetPasswordUser} />
+                    <UsersScreen data={data} profile={profile} onEdit={onEditUser} onDelete={onDeleteUser} onInvite={onInviteUser} onResetPassword={onResetPasswordUser} onApprove={onApproveUser} />
                 )}
             </div>
         );
@@ -9270,6 +9280,12 @@
                        </React.Fragment>
                    }>
                 <form id="user-form" onSubmit={(e) => { e.preventDefault(); onSubmit(form); }} className="space-y-4">
+                    {initial && initial.status === 'pending' && (
+                        <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-200 text-xs flex items-center gap-2">
+                            <i className="fa-solid fa-hourglass-half text-amber-400"></i>
+                            <span>هذا المستخدم مسجل ذاتياً وبانتظار الاعتماد. لتفعيله، حدد الدور والصلاحيات المطلوبة وغيّر حالة الحساب إلى «نشط» ثم اضغط حفظ.</span>
+                        </div>
+                    )}
                     {isSelf && (
                         <p className="p-3 bg-amber-950/40 border border-amber-500/30 rounded-xl text-amber-200 text-xs">
                             هذا حسابك الشخصي. لا يمكن تخفيض دورك أو تعطيل حسابك إن كنت آخر مدير نشط.
@@ -10062,6 +10078,17 @@
             }
         });
 
+        const approveUser = (user) => setConfirmState({
+            title: 'اعتماد وتفعيل المستخدم',
+            tone: 'primary',
+            confirmLabel: 'اعتماد وتفعيل الحساب',
+            body: `سيتم اعتماد حساب «${user.name}» (${user.email}) وتفعيله فورياً مع منحه صلاحيات المشاهدة الأساسية وتمكينه من تسجيل الدخول للنظام.`,
+            onConfirm: async () => {
+                setConfirmState(null);
+                await run(() => api.profiles.approve(user.id), `تم اعتماد وتفعيل حساب ${user.name} بنجاح`);
+            }
+        });
+
         const rootFolderId = settings && settings.drive_root_folder_id;
 
         /* Approving moves the file in Drive as well as in the database, so the
@@ -10422,6 +10449,7 @@
                                                           onDeleteUser={deleteUser}
                                                           onInviteUser={(u) => setInviteUserModal({ initial: u })}
                                                           onResetPasswordUser={(u) => setResetPasswordUser(u)}
+                                                          onApproveUser={approveUser}
                                                           onEditProject={(p) => setProjectModal({ initial: p })}
                                                           onCreateProject={() => setProjectModal({ initial: null })}
                                                           onSafeDeleteProject={(p) => setSafeDeleteModal(p)}

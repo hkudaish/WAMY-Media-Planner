@@ -614,16 +614,16 @@ app.post('/api/auth/signup', async (req, res, next) => {
       await client.query('rollback');
       return res.status(403).json({ code: 'BOOTSTRAP_REQUIRED', message: 'يلزم رمز التهيئة لإنشاء مدير النظام الأول.' });
     }
-    if (IS_PRODUCTION && !first && process.env.ALLOW_PUBLIC_SIGNUP !== 'true') {
+    if (process.env.ALLOW_PUBLIC_SIGNUP === 'false') {
       await client.query('rollback');
-      return res.status(403).json({ code: 'SIGNUP_DISABLED', message: 'إنشاء الحسابات العامة معطل.' });
+      return res.status(403).json({ code: 'SIGNUP_DISABLED', message: 'إنشاء الحسابات العامة معطل حالياً من قبل الإدارة.' });
     }
     const passwordHash = await bcrypt.hash(password, 12);
     const result = await client.query(
       `insert into profiles (name,email,password_hash,role,org,position,status,permissions,data_scope)
        values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id,name,email,org,status`,
       [name, email, passwordHash, first ? 'admin' : 'user', org, position,
-       first ? 'active' : 'pending', first ? ALL_PERMISSIONS : { ...NO_PERMISSIONS, 'Dashboard.View': true }, first ? 'all_data' : 'my_data']
+       first ? 'active' : 'pending', first ? ALL_PERMISSIONS : NO_PERMISSIONS, first ? 'all_data' : 'my_data']
     );
     await client.query(
       `insert into activity_log(actor_id,actor_name,org,action,type,entity_table,entity_id,details,request_id,ip_address)
@@ -655,11 +655,17 @@ app.post('/api/auth/login', async (req, res, next) => {
         user_id: user && user.id }));
       return res.status(401).json({ message: 'Invalid login credentials' });
     }
+    if (user.status === 'pending') {
+      await recordLogin(email, req.ip, false, user.id);
+      console.warn(JSON.stringify({ level: 'warn', event: 'login_pending', request_id: req.requestId, ip: req.ip,
+        user_id: user.id }));
+      return res.status(403).json({ code: 'ACCOUNT_PENDING', message: 'تم إنشاء حسابك بنجاح وهو قيد المراجعة والاعتماد من قبل مدير النظام. يرجى الانتظار لحين منحك حق الوصول.' });
+    }
     if (user.status !== 'active') {
       await recordLogin(email, req.ip, false, user.id);
       console.warn(JSON.stringify({ level: 'warn', event: 'login_inactive', request_id: req.requestId, ip: req.ip,
         user_id: user.id }));
-      return res.status(403).json({ code: 'ACCOUNT_INACTIVE', message: 'الحساب غير نشط.' });
+      return res.status(403).json({ code: 'ACCOUNT_INACTIVE', message: 'هذا الحساب غير نشط أو تم تعطيله. يرجى التواصل مع إدارة النظام.' });
     }
     await recordLogin(email, req.ip, true, user.id);
     await issueSession(res, user.id);
@@ -937,6 +943,50 @@ app.post('/api/profiles/:id/reset-password', requireActive, async (req, res, nex
   } finally {
     client.release();
   }
+});
+
+app.post('/api/profiles/:id/approve', requireActive, async (req, res, next) => {
+  if (!isAdmin(req.user) && !can(req.user, 'Settings.Users')) return forbid(res);
+  const targetId = req.params.id;
+  if (!/^[0-9a-f-]{36}$/i.test(targetId)) return invalid(res, 'معرف المستخدم غير صالح.');
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    const target = (await client.query('select * from profiles where id=$1 and deleted_at is null for update', [targetId])).rows[0];
+    if (!target) {
+      await client.query('rollback');
+      return res.status(404).json({ message: 'المستخدم غير موجود.' });
+    }
+    const defaultPerms = req.body.permissions || {
+      ...NO_PERMISSIONS,
+      'Dashboard.View': true,
+      'MainPlan.View': true,
+      'Products.View': true,
+      'Tasks.View': true,
+      'Timeline.View': true,
+      'Calendar.View': true,
+      'Files.View': true,
+      'Reports.View': true
+    };
+    const newRole = req.body.role || target.role || 'user';
+    const newDataScope = req.body.data_scope || target.data_scope || 'my_data';
+    const permissions = newRole === 'admin' ? ALL_PERMISSIONS : defaultPerms;
+    const { rows } = await client.query(
+      `update profiles set status='active', role=$1, permissions=$2, data_scope=$3, updated_at=now() where id=$4 returning *`,
+      [newRole, JSON.stringify(permissions), newDataScope, targetId]
+    );
+    await writeAudit(client, req, `اعتماد وتفعيل حساب المستخدم: ${target.name}`, 'UPDATE', 'profiles', targetId, {
+      previous_status: target.status,
+      new_status: 'active',
+      role: newRole,
+      data_scope: newDataScope
+    });
+    await client.query('commit');
+    res.json({ success: true, user: publicProfile(rows[0]) });
+  } catch (error) {
+    await client.query('rollback');
+    next(error);
+  } finally { client.release(); }
 });
 
 // -----------------------------------------------------------------------------
