@@ -52,7 +52,8 @@ async function ensureDatabaseMigrated(connectionString) {
       ['013_task_workflows_and_chat', path.join(__dirname, '..', 'database', 'migrations', '013_task_workflows_and_chat.sql')],
       ['014_comprehensive_performance_indexes', path.join(__dirname, '..', 'database', 'migrations', '014_comprehensive_performance_indexes.sql')],
       ['015_public_registration_settings_and_request_workflow', path.join(__dirname, '..', 'database', 'migrations', '015_public_registration_settings_and_request_workflow.sql')],
-      ['016_permission_packages_and_unified_scope', path.join(__dirname, '..', 'database', 'migrations', '016_permission_packages_and_unified_scope.sql')]
+      ['016_permission_packages_and_unified_scope', path.join(__dirname, '..', 'database', 'migrations', '016_permission_packages_and_unified_scope.sql')],
+      ['017_user_hierarchy_reporting', path.join(__dirname, '..', 'database', 'migrations', '017_user_hierarchy_reporting.sql')]
     ];
     for (const [version, file] of migrations) {
       if (!fs.existsSync(file)) continue;

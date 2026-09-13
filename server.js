@@ -207,10 +207,14 @@ async function loadUser(req, _res, next) {
               pkg.name as package_name,
               pkg.code as package_code,
               pkg.scope_type as package_scope_type,
-              pkg.permissions as package_permissions
+              pkg.permissions as package_permissions,
+              mgr.name as manager_name,
+              mgr.role as manager_role,
+              mgr.position as manager_position
          from sessions s
          join profiles p on p.id=s.user_id
          left join permission_packages pkg on pkg.id=p.package_id and pkg.deleted_at is null
+         left join profiles mgr on mgr.id=p.reports_to_id and mgr.deleted_at is null
         where s.token_hash=$1 and s.expires_at > now() and p.deleted_at is null`,
       [tokenHash(token)]
     );
@@ -316,6 +320,28 @@ const ENUMS = {
   fileStatus: new Set(['draft', 'under_review', 'ready_for_approval', 'approved', 'rejected']),
   taskMode: new Set(['structured', 'adhoc'])
 };
+
+const OFFICIAL_ROLE_POSITIONS = {
+  admin: 'مدير النظام',
+  project_manager: 'مدير مشروع',
+  department_manager: 'مدير إدارة',
+  team_head: 'رئيس قسم',
+  team_member: 'موظف قسم',
+  user: 'موظف قسم'
+};
+
+const OFFICIAL_POSITIONS_LIST = ['مدير النظام', 'مدير مشروع', 'مدير إدارة', 'رئيس قسم', 'موظف قسم'];
+
+function normalizePositionForRole(pos, role) {
+  const p = String(pos || '').trim();
+  if (OFFICIAL_POSITIONS_LIST.includes(p)) return p;
+  if (p.includes('مدير نظام') || p.toLowerCase().includes('admin')) return 'مدير النظام';
+  if (p.includes('مدير مشروع') || p.toLowerCase().includes('project')) return 'مدير مشروع';
+  if (p.includes('مدير إدارة') || p.toLowerCase().includes('manager')) return 'مدير إدارة';
+  if (p.includes('رئيس قسم') || p.toLowerCase().includes('head') || p.toLowerCase().includes('lead')) return 'رئيس قسم';
+  if (p.includes('موظف') || p.toLowerCase().includes('member') || p.toLowerCase().includes('user')) return 'موظف قسم';
+  return OFFICIAL_ROLE_POSITIONS[role] || 'موظف قسم';
+}
 
 function normalizeScopeType(val, role) {
   const s = String(val || '').trim().toLowerCase();
@@ -622,7 +648,7 @@ async function validatePlanRows(inputRows) {
 }
 
 const FIELDS = {
-  profiles: ['name','email','mobile','role','org','position','department','team','data_scope','status','permissions','avatar_url','request_notes','rejection_reason','request_info_note','approved_by','approved_at','reviewed_by','reviewed_at','package_id','scope_type','assigned_project_ids','assigned_department','direct_permissions_allow','direct_permissions_deny'],
+  profiles: ['name','email','mobile','role','org','position','department','team','data_scope','status','permissions','avatar_url','request_notes','rejection_reason','request_info_note','approved_by','approved_at','reviewed_by','reviewed_at','package_id','scope_type','assigned_project_ids','assigned_department','direct_permissions_allow','direct_permissions_deny','reports_to_id'],
   projects: ['code','hierarchical_code','name','description','objective','vision','mission','org','manager_id','planned_start','planned_end','status','budget','currency','source_notes','classification'],
   products: ['code','hierarchical_code','legacy_code','project_id','plan_track','name','content','target_qty','org','manager_id','start_date','due_date','status','manual_progress','active_duration_days','recurrence','allow_multiple_tasks','is_active','drive_folder_id','drive_proposals_folder_id','drive_approved_folder_id'],
   tasks: ['product_id','project_id','plan_item_id','title','description','goal','required_outputs','org','assignee_id','priority','status','progress','planned_start','due_date','scheduled_start_at','scheduled_due_at','actual_completion','active_duration','phase_name','notes','import_key','created_by','task_mode','actual_start_at','started_by_id','completion_submitted_at','completion_submitted_by_id','completion_approved_at','completion_approved_by_id','hold_reason','hold_at','hold_by_id','expected_resume_at','original_due_at','extension_count'],
@@ -701,7 +727,7 @@ app.post('/api/auth/signup', async (req, res, next) => {
   const name = String(req.body.name || '').trim();
   const mobile = String(req.body.mobile || '').trim() || null;
   const org = req.body.org === 'imaan' ? 'imaan' : 'wamy';
-  const position = String(req.body.position || '').trim() || null;
+  const rawPosition = String(req.body.position || '').trim();
   const department = String(req.body.department || '').trim() || null;
   const team = String(req.body.team || '').trim() || null;
   const requestNotes = String(req.body.request_notes || req.body.notes || '').trim() || null;
@@ -759,13 +785,27 @@ app.post('/api/auth/signup', async (req, res, next) => {
       }
     }
 
+    let userRole = 'team_member';
+    if (first) {
+      userRole = 'admin';
+    } else if (rawPosition.includes('مدير مشروع') || rawPosition.toLowerCase().includes('project')) {
+      userRole = 'project_manager';
+    } else if (rawPosition.includes('مدير إدارة') || rawPosition.toLowerCase().includes('manager')) {
+      userRole = 'department_manager';
+    } else if (rawPosition.includes('رئيس قسم') || rawPosition.toLowerCase().includes('head') || rawPosition.toLowerCase().includes('lead')) {
+      userRole = 'team_head';
+    } else {
+      userRole = 'team_member';
+    }
+
+    const position = normalizePositionForRole(rawPosition, userRole);
     const passwordHash = await bcrypt.hash(password, 12);
     const permissionsPayload = first ? ALL_PERMISSIONS : NO_PERMISSIONS;
     const result = await client.query(
       `insert into profiles (name,email,mobile,password_hash,role,org,position,department,team,status,permissions,data_scope,request_notes)
        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-       returning id,name,email,mobile,org,position,status,created_at`,
-      [name, email, mobile, passwordHash, first ? 'admin' : 'user', org, position, department, team,
+       returning id,name,email,mobile,role,org,position,status,created_at`,
+      [name, email, mobile, passwordHash, userRole, org, position, department, team,
        first ? 'active' : 'pending', JSON.stringify(permissionsPayload), first ? 'all_data' : 'my_data', requestNotes]
     );
 
@@ -1094,6 +1134,9 @@ app.get('/api/profiles', requireActive, async (req, res, next) => {
               p.reviewed_by, p.reviewed_at, p.created_at, p.updated_at,
               p.package_id, p.scope_type, p.assigned_project_ids, p.assigned_department,
               p.direct_permissions_allow, p.direct_permissions_deny,
+              p.reports_to_id,
+              mgr.name as manager_name, mgr.role as manager_role, mgr.position as manager_position,
+              (select count(*)::int from profiles sub where sub.reports_to_id = p.id and sub.deleted_at is null) as direct_reports_count,
               pkg.name as package_name, pkg.code as package_code, pkg.scope_type as package_scope_type,
               pkg.permissions as package_permissions,
               approver.name as approver_name, reviewer.name as reviewer_name,
@@ -1103,6 +1146,7 @@ app.get('/api/profiles', requireActive, async (req, res, next) => {
        left join permission_packages pkg on pkg.id = p.package_id and pkg.deleted_at is null
        left join profiles approver on approver.id = p.approved_by
        left join profiles reviewer on reviewer.id = p.reviewed_by
+       left join profiles mgr on mgr.id = p.reports_to_id and mgr.deleted_at is null
        where p.deleted_at is null and ($1::boolean or p.org=$2)
        order by p.created_at desc, p.name`,
       [privileged, req.user.org]
@@ -1121,13 +1165,17 @@ app.post('/api/profiles/invite', requireActive, async (req, res, next) => {
   if (!isAdmin(req.user)) return forbid(res);
   const name = String(req.body.name || '').trim();
   const email = String(req.body.email || '').trim().toLowerCase();
-  const position = String(req.body.position || '').trim() || null;
   const department = String(req.body.department || '').trim() || null;
   const team = String(req.body.team || '').trim() || null;
   const dataScope = ['my_data','my_team','my_department','my_project','all_data'].includes(req.body.data_scope) ? req.body.data_scope : 'my_data';
-  const role = ENUMS.role.has(req.body.role) ? req.body.role : 'user';
+  const role = ENUMS.role.has(req.body.role) ? req.body.role : 'team_member';
+  const position = normalizePositionForRole(req.body.position, role);
   const org = ENUMS.org.has(req.body.org) ? req.body.org : 'wamy';
   let packageId = req.body.package_id || null;
+  let reportsToId = req.body.reports_to_id ? String(req.body.reports_to_id).trim() : null;
+  if (reportsToId === '' || reportsToId === 'none') reportsToId = null;
+  if (reportsToId && !/^[0-9a-f-]{36}$/i.test(reportsToId)) return invalid(res, 'معرف المسؤول المباشر غير صالح.');
+
   const scopeType = normalizeScopeType(req.body.scope_type, role);
   const assignedProjectIds = Array.isArray(req.body.assigned_project_ids) ? req.body.assigned_project_ids : [];
   const assignedDept = req.body.assigned_department || department || null;
@@ -1136,7 +1184,7 @@ app.post('/api/profiles/invite', requireActive, async (req, res, next) => {
 
   const requestedPermissions = req.body.permissions == null ? {} : req.body.permissions;
   const permissions = role === 'admin' ? ALL_PERMISSIONS : { ...NO_PERMISSIONS, ...requestedPermissions };
-  const validationError = validatePatch('profiles', { name,email,position,department,team,data_scope:dataScope,role,org,permissions });
+  const validationError = validatePatch('profiles', { name,email,position,department,team,data_scope:dataScope,role,org,permissions,reports_to_id:reportsToId });
   if (validationError) return invalid(res, validationError);
   if (!name || name.length > 200 || !/^\S+@\S+\.\S+$/.test(email) || email.length > 320) return invalid(res, 'الاسم والبريد الإلكتروني الصحيح مطلوبان.');
   if (req.body.profile_id && !/^[0-9a-f-]{36}$/i.test(req.body.profile_id)) return invalid(res, 'معرّف المستخدم غير صالح.');
@@ -1156,6 +1204,11 @@ app.post('/api/profiles/invite', requireActive, async (req, res, next) => {
       if (defaultPkg) packageId = defaultPkg.id;
     }
 
+    if (reportsToId) {
+      const mgrCheck = (await client.query('select id from profiles where id=$1 and deleted_at is null', [reportsToId])).rows[0];
+      if (!mgrCheck) reportsToId = null;
+    }
+
     const existing = (await client.query(
       req.body.profile_id
         ? `select * from profiles where deleted_at is null and id=$1 and lower(email)=$2 for update`
@@ -1173,17 +1226,18 @@ app.post('/api/profiles/invite', requireActive, async (req, res, next) => {
     const profile = existing
       ? (await client.query(
           `update profiles set name=$1,email=$2,password_hash=$3,role=$4,org=$5,position=$6,department=$7,team=$8,data_scope=$9,status='pending',permissions=$10,
-                               package_id=$11,scope_type=$12,assigned_project_ids=$13,assigned_department=$14,direct_permissions_allow=$15,direct_permissions_deny=$16
-            where id=$17 returning *`,
+                               package_id=$11,scope_type=$12,assigned_project_ids=$13,assigned_department=$14,direct_permissions_allow=$15,direct_permissions_deny=$16,
+                               reports_to_id=$17
+            where id=$18 returning *`,
           [name,email,unusablePassword,role,org,position,department,team,dataScope,permissions,
-           packageId,scopeType,JSON.stringify(assignedProjectIds),assignedDept,JSON.stringify(directAllow),JSON.stringify(directDeny),existing.id]
+           packageId,scopeType,JSON.stringify(assignedProjectIds),assignedDept,JSON.stringify(directAllow),JSON.stringify(directDeny),reportsToId,existing.id]
         )).rows[0]
       : (await client.query(
           `insert into profiles(name,email,password_hash,role,org,position,department,team,data_scope,status,permissions,
-                               package_id,scope_type,assigned_project_ids,assigned_department,direct_permissions_allow,direct_permissions_deny)
-           values($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',$10,$11,$12,$13,$14,$15,$16) returning *`,
+                               package_id,scope_type,assigned_project_ids,assigned_department,direct_permissions_allow,direct_permissions_deny,reports_to_id)
+           values($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',$10,$11,$12,$13,$14,$15,$16,$17) returning *`,
           [name,email,unusablePassword,role,org,position,department,team,dataScope,permissions,
-           packageId,scopeType,JSON.stringify(assignedProjectIds),assignedDept,JSON.stringify(directAllow),JSON.stringify(directDeny)]
+           packageId,scopeType,JSON.stringify(assignedProjectIds),assignedDept,JSON.stringify(directAllow),JSON.stringify(directDeny),reportsToId]
         )).rows[0];
     await client.query(
       `update user_invitations set revoked_at=now() where profile_id=$1 and accepted_at is null and revoked_at is null`,
@@ -1195,7 +1249,7 @@ app.post('/api/profiles/invite', requireActive, async (req, res, next) => {
       [profile.id,tokenHash(token),req.user.id,INVITATION_HOURS]
     )).rows[0];
     await writeAudit(client, req, existing ? 'إعادة إصدار دعوة مستخدم' : 'إضافة مستخدم وإصدار دعوة', 'CREATE', 'profiles', profile.id, {
-      email,role,org,data_scope:dataScope,permissions,package_id:packageId,scope_type:scopeType,invitation_id: invitation.id,expires_at: invitation.expires_at
+      email,role,org,data_scope:dataScope,permissions,package_id:packageId,scope_type:scopeType,reports_to_id:reportsToId,invitation_id: invitation.id,expires_at: invitation.expires_at
     });
     await client.query('commit');
     const base = PUBLIC_ORIGIN.replace(/\/$/, '');
@@ -1269,6 +1323,13 @@ app.patch('/api/profiles/:id', requireActive, async (req, res, next) => {
     : isAdmin(req.user) ? FIELDS.profiles : ['name','email','org','position','status','avatar_url'];
 
   const patch = { ...req.body };
+  if (patch.reports_to_id === '' || patch.reports_to_id === 'none') {
+    patch.reports_to_id = null;
+  }
+  if (patch.reports_to_id && patch.reports_to_id === req.params.id) {
+    return invalid(res, 'لا يمكن للمستخدم أن يكون مسؤولاً مباشراً عن نفسه.');
+  }
+
   // If role is changed and package_id not provided, auto-link default package for that role
   if (isAdmin(req.user) && patch.role && !patch.package_id) {
     const defPkg = (await pool.query(
@@ -1276,6 +1337,10 @@ app.patch('/api/profiles/:id', requireActive, async (req, res, next) => {
       [patch.role]
     )).rows[0];
     if (defPkg) patch.package_id = defPkg.id;
+  }
+
+  if (patch.position !== undefined || patch.role !== undefined) {
+    patch.position = normalizePositionForRole(patch.position, patch.role || req.user.role);
   }
 
   if (isAdmin(req.user)) {
@@ -1392,13 +1457,18 @@ app.post('/api/profiles/:id/approve', requireActive, async (req, res, next) => {
       return res.status(404).json({ message: 'المستخدم غير موجود.' });
     }
 
-    const newRole = req.body.role || target.role || 'user';
+    const newRole = req.body.role || target.role || 'team_member';
     const newOrg = req.body.org || target.org || 'wamy';
-    const newPosition = req.body.position !== undefined ? (String(req.body.position || '').trim() || null) : target.position;
+    const newPosition = normalizePositionForRole(req.body.position !== undefined ? req.body.position : target.position, newRole);
     const newDepartment = req.body.department !== undefined ? (String(req.body.department || '').trim() || null) : target.department;
     const newTeam = req.body.team !== undefined ? (String(req.body.team || '').trim() || null) : target.team;
     const newDataScope = req.body.data_scope || target.data_scope || 'my_data';
     
+    let reportsToId = req.body.reports_to_id !== undefined ? (req.body.reports_to_id ? String(req.body.reports_to_id).trim() : null) : (target.reports_to_id || null);
+    if (reportsToId === '' || reportsToId === 'none') reportsToId = null;
+    if (reportsToId && !/^[0-9a-f-]{36}$/i.test(reportsToId)) return invalid(res, 'معرف المسؤول المباشر غير صالح.');
+    if (reportsToId === targetId) return invalid(res, 'لا يمكن للمستخدم أن يكون مسؤولاً مباشراً عن نفسه.');
+
     let packageId = req.body.package_id || target.package_id || null;
     const scopeType = normalizeScopeType(req.body.scope_type || target.scope_type, newRole);
     const assignedProjectIds = req.body.assigned_project_ids !== undefined ? req.body.assigned_project_ids : target.assigned_project_ids || [];
@@ -1421,10 +1491,10 @@ app.post('/api/profiles/:id/approve', requireActive, async (req, res, next) => {
               permissions=$6, data_scope=$7, approved_by=$8, approved_at=now(),
               reviewed_by=$8, reviewed_at=now(), package_id=$9, scope_type=$10,
               assigned_project_ids=$11, assigned_department=$12, direct_permissions_allow=$13,
-              direct_permissions_deny=$14, updated_at=now()
-        where id=$15 returning *`,
+              direct_permissions_deny=$14, reports_to_id=$15, updated_at=now()
+        where id=$16 returning *`,
       [newRole, newOrg, newPosition, newDepartment, newTeam, JSON.stringify(permissions), newDataScope, req.user.id,
-       packageId, scopeType, JSON.stringify(assignedProjectIds), assignedDept, JSON.stringify(directAllow), JSON.stringify(directDeny), targetId]
+       packageId, scopeType, JSON.stringify(assignedProjectIds), assignedDept, JSON.stringify(directAllow), JSON.stringify(directDeny), reportsToId, targetId]
     );
     await writeAudit(client, req, `اعتماد وتفعيل حساب المستخدم: ${target.name}`, 'AUTH', 'profiles', targetId, {
       previous_status: target.status,
@@ -1437,6 +1507,7 @@ app.post('/api/profiles/:id/approve', requireActive, async (req, res, next) => {
       data_scope: newDataScope,
       package_id: packageId,
       scope_type: scopeType,
+      reports_to_id: reportsToId,
       approved_by: req.user.id
     });
     await client.query('commit');

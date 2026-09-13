@@ -250,18 +250,14 @@
     const ORG_LIST = Object.values(ORGS);
 
     const ROLES = {
-        admin:              { code: 'admin',              label: 'مدير النظام',       hint: 'صلاحيات كاملة على النظام', chip: 'bg-purple-950 text-purple-300 border-purple-500/40', default_package: 'admin_package', default_scope: 'GLOBAL' },
-        project_manager:    { code: 'project_manager',    label: 'مدير مشروع',      hint: 'إدارة مشاريع محددة ومتابعة خططها ومنتجاتها', chip: 'bg-cyan-950 text-cyan-300 border-cyan-500/40', default_package: 'project_manager_package', default_scope: 'PROJECT' },
-        department_manager: { code: 'department_manager', label: 'مدير إدارة',      hint: 'إدارة شاملة للإدارة وتأسيس المشاريع والخطط', chip: 'bg-indigo-950 text-indigo-300 border-indigo-500/40', default_package: 'department_manager_package', default_scope: 'DEPARTMENT' },
-        team_head:          { code: 'team_head',          label: 'رئيس قسم',       hint: 'إدارة القسم وفرقه ومتابعة المهام دون إنشاء مشاريع جديدة', chip: 'bg-sky-950 text-sky-300 border-sky-500/40', default_package: 'team_head_package', default_scope: 'DEPARTMENT' },
-        team_member:        { code: 'team_member',        label: 'موظف قسم',       hint: 'تنفيذ المهام والإجراءات ورفع الملفات والتواصل', chip: 'bg-slate-800 text-slate-300 border-slate-600/40', default_package: 'team_member_package', default_scope: 'ASSIGNED' },
+        admin:              { code: 'admin',              label: 'مدير النظام',       hint: 'صلاحيات شاملة تلقائية (GLOBAL Access)', chip: 'bg-purple-950 text-purple-300 border-purple-500/40', default_package: 'admin_package', default_scope: 'GLOBAL' },
+        project_manager:    { code: 'project_manager',    label: 'مدير مشروع',      hint: 'إدارة المشاريع والخطط والمنتجات والفرق ومخرجات المشروع', chip: 'bg-cyan-950 text-cyan-300 border-cyan-500/40', default_package: 'project_manager_package', default_scope: 'PROJECT' },
+        department_manager: { code: 'department_manager', label: 'مدير إدارة',      hint: 'إدارة ومتابعة أعمال وإجراءات ومخرجات الإدارة', chip: 'bg-indigo-950 text-indigo-300 border-indigo-500/40', default_package: 'department_manager_package', default_scope: 'DEPARTMENT' },
+        team_head:          { code: 'team_head',          label: 'رئيس قسم',       hint: 'إسناد وتوزيع المهام وإدارة الإجراءات واعتماد المخرجات (مع حظر إنشاء المشاريع)', chip: 'bg-sky-950 text-sky-300 border-sky-500/40', default_package: 'team_head_package', default_scope: 'DEPARTMENT' },
+        team_member:        { code: 'team_member',        label: 'موظف قسم',       hint: 'تنفيذ المهام والإجراءات ورفع المخرجات والمحادثات', chip: 'bg-slate-800 text-slate-300 border-slate-600/40', default_package: 'team_member_package', default_scope: 'ASSIGNED' },
         // Aliases for backward compatibility
-        user:               { code: 'user',               label: 'موظف قسم',       hint: 'تنفيذ المهام والإجراءات ورفع الملفات والتواصل', chip: 'bg-slate-800 text-slate-300 border-slate-600/40', default_package: 'team_member_package', default_scope: 'ASSIGNED' },
-        team_lead:          { code: 'team_lead',          label: 'رئيس قسم',       hint: 'إدارة القسم وفرقه ومتابعة المهام دون إنشاء مشاريع جديدة', chip: 'bg-sky-950 text-sky-300 border-sky-500/40', default_package: 'team_head_package', default_scope: 'DEPARTMENT' },
-        supervisor:         { code: 'supervisor',         label: 'مشرف',            hint: 'إشراف تشغيلي', chip: 'bg-blue-950 text-blue-300 border-blue-500/40', default_package: 'project_manager_package', default_scope: 'PROJECT' },
-        reviewer:           { code: 'reviewer',           label: 'مراجع',           hint: 'مراجعة الأعمال', chip: 'bg-amber-950 text-amber-300 border-amber-500/40', default_package: 'team_member_package', default_scope: 'ASSIGNED' },
-        approver:           { code: 'approver',           label: 'معتمد',           hint: 'اعتماد الأعمال', chip: 'bg-emerald-950 text-emerald-300 border-emerald-500/40', default_package: 'project_manager_package', default_scope: 'PROJECT' },
-        read_only:          { code: 'read_only',          label: 'قراءة فقط',       hint: 'عرض دون تعديل', chip: 'bg-slate-900 text-slate-400 border-slate-600/40', default_package: 'team_member_package', default_scope: 'ASSIGNED' }
+        user:               { code: 'user',               label: 'موظف قسم',       hint: 'تنفيذ المهام والإجراءات ورفع المخرجات والمحادثات', chip: 'bg-slate-800 text-slate-300 border-slate-600/40', default_package: 'team_member_package', default_scope: 'ASSIGNED' },
+        team_lead:          { code: 'team_lead',          label: 'رئيس قسم',       hint: 'إسناد وتوزيع المهام وإدارة الإجراءات واعتماد المخرجات (مع حظر إنشاء المشاريع)', chip: 'bg-sky-950 text-sky-300 border-sky-500/40', default_package: 'team_head_package', default_scope: 'DEPARTMENT' }
     };
     const OFFICIAL_ROLES = [
         ROLES.admin,
@@ -270,6 +266,32 @@
         ROLES.team_head,
         ROLES.team_member
     ];
+
+    const OFFICIAL_POSITIONS = [
+        { position: 'مدير النظام', role: 'admin', label: 'مدير النظام (admin)', hint: 'صلاحيات شاملة تلقائية (GLOBAL Access)' },
+        { position: 'مدير مشروع', role: 'project_manager', label: 'مدير مشروع (project_manager)', hint: 'إدارة المشاريع والخطط والمنتجات والفرق ومخرجات المشروع' },
+        { position: 'مدير إدارة', role: 'department_manager', label: 'مدير إدارة (department_manager)', hint: 'إدارة ومتابعة أعمال وإجراءات ومخرجات الإدارة' },
+        { position: 'رئيس قسم', role: 'team_head', label: 'رئيس قسم (team_head)', hint: 'إسناد وتوزيع المهام وإدارة الإجراءات واعتماد المخرجات' },
+        { position: 'موظف قسم', role: 'team_member', label: 'موظف قسم (team_member / user)', hint: 'تنفيذ المهام والإجراءات ورفع المخرجات والمحادثات' }
+    ];
+
+    const ROLE_TO_POSITION = {
+        admin: 'مدير النظام',
+        project_manager: 'مدير مشروع',
+        department_manager: 'مدير إدارة',
+        team_head: 'رئيس قسم',
+        team_lead: 'رئيس قسم',
+        team_member: 'موظف قسم',
+        user: 'موظف قسم'
+    };
+
+    const POSITION_TO_ROLE = {
+        'مدير النظام': 'admin',
+        'مدير مشروع': 'project_manager',
+        'مدير إدارة': 'department_manager',
+        'رئيس قسم': 'team_head',
+        'موظف قسم': 'team_member'
+    };
     const DATA_SCOPES = {
         my_data: { label: 'بياناتي فقط' }, my_team: { label: 'فريقي' },
         my_department: { label: 'إدارتي' }, my_project: { label: 'مشروعي' }, all_data: { label: 'كل البيانات' }
@@ -1777,12 +1799,13 @@
                                                 {ORG_LIST.map(o => <option key={o.code} value={o.code}>{o.label}</option>)}
                                             </select>
                                         </Field>
-                                        <Field label="المنصب" hint="اختر نوع المستخدم">
+                                        <Field label="المنصب المطلوب" hint="اختر المنصب الوظيفي">
                                             <select className={inputClass} value={form.position} onChange={set('position')}>
                                                 <option value="">— اختر المنصب —</option>
-                                                <option value="مدير إدارة (Manager)">مدير إدارة "Manager"</option>
-                                                <option value="رئيس قسم (TeamHead)">رئيس قسم "TeamHead"</option>
-                                                <option value="موظف (Team Member)">موظف "Team Member"</option>
+                                                <option value="مدير مشروع">مدير مشروع (Project Manager)</option>
+                                                <option value="مدير إدارة">مدير إدارة (Department Manager)</option>
+                                                <option value="رئيس قسم">رئيس قسم (Team Head)</option>
+                                                <option value="موظف قسم">موظف قسم (Team Member)</option>
                                             </select>
                                         </Field>
                                     </div>
@@ -2792,6 +2815,34 @@
 
         const packages = data?.permissionPackages || [];
         const projects = data?.projects || [];
+        const allProfiles = (data?.users || data?.profiles || []).filter(u => u.status === 'active' && u.id !== form.id && u.id !== form.user_id);
+
+        const { eligibleManagers, otherManagers } = useMemo(() => {
+            const role = form.role;
+            let targetRoles = [];
+            if (role === 'team_member' || role === 'user') {
+                targetRoles = ['team_head', 'team_lead', 'department_manager'];
+            } else if (role === 'team_head' || role === 'team_lead') {
+                targetRoles = ['department_manager'];
+            } else if (role === 'project_manager') {
+                targetRoles = ['department_manager', 'admin'];
+            } else if (role === 'department_manager') {
+                targetRoles = ['admin'];
+            }
+
+            const eligible = [];
+            const others = [];
+
+            allProfiles.forEach(u => {
+                if (targetRoles.includes(u.role)) {
+                    eligible.push(u);
+                } else {
+                    others.push(u);
+                }
+            });
+
+            return { eligibleManagers: eligible, otherManagers: others };
+        }, [allProfiles, form.role]);
 
         const selectedPackage = packages.find(p => p.id === form.package_id) || packages.find(p => p.code === ROLES[form.role]?.default_package);
         const defaultPackageForRole = packages.find(p => p.is_default_for_role === form.role) || packages.find(p => p.code === ROLES[form.role]?.default_package);
@@ -2826,7 +2877,7 @@
             setForm(prev => ({ ...prev, permissions: effectivePermissions }));
         }, [effectivePermissions]);
 
-        const handleRoleChange = (roleCode) => {
+        const handleRoleChange = (roleCode, overridePos = null) => {
             const roleDef = ROLES[roleCode];
             const defPkg = packages.find(p => p.is_default_for_role === roleCode) || packages.find(p => p.code === roleDef?.default_package);
             
@@ -2834,12 +2885,20 @@
             if (roleCode === 'project_manager') autoScope = 'مشروع';
             else if (roleCode === 'department_manager' || roleCode === 'team_head') autoScope = 'إدارة';
 
+            const newPos = overridePos || ROLE_TO_POSITION[roleCode] || 'موظف قسم';
+
             setForm(prev => ({
                 ...prev,
                 role: roleCode,
+                position: newPos,
                 package_id: defPkg ? defPkg.id : prev.package_id,
                 scope_type: autoScope
             }));
+        };
+
+        const handlePositionChange = (posTitle) => {
+            const mappedRole = POSITION_TO_ROLE[posTitle] || 'team_member';
+            handleRoleChange(mappedRole, posTitle);
         };
 
         const handlePackageChange = (pkgId) => {
@@ -3047,23 +3106,103 @@
                     )}
                 </div>
 
-                {/* 2. Role & Permission Package Binding */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <Field label="الدور القيادي / الوظيفي" required>
-                        <select
-                            className={inputClass}
-                            value={form.role}
-                            onChange={(e) => handleRoleChange(e.target.value)}
-                        >
-                            {OFFICIAL_ROLES.map(r => (
-                                <option key={r.code} value={r.code}>
-                                    {r.label} — {r.hint}
-                                </option>
-                            ))}
-                        </select>
-                    </Field>
+                {/* 2. Position, Role, Manager Hierarchy & Package Binding */}
+                <div className="p-4 bg-slate-900/90 border border-slate-800 rounded-2xl space-y-4">
+                    <div className="flex items-center justify-between">
+                        <label className="text-xs font-extrabold text-blue-300 flex items-center gap-2">
+                            <i className="fa-solid fa-id-badge text-blue-400"></i>
+                            <span>المنصب الوظيفي والدور القيادي والهيكل الإداري</span>
+                            <span className="text-rose-400 font-bold">*</span>
+                        </label>
+                    </div>
 
-                    <div className="space-y-1.5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <Field label="المنصب الوظيفي المعتمد" required hint="تحديد المنصب الرسمي وفق الهيكلة الموحدة">
+                            <select
+                                className={inputClass}
+                                value={form.position || ROLE_TO_POSITION[form.role] || 'موظف قسم'}
+                                onChange={(e) => handlePositionChange(e.target.value)}
+                            >
+                                {OFFICIAL_POSITIONS.map(pos => (
+                                    <option key={pos.position} value={pos.position}>
+                                        {pos.label}
+                                    </option>
+                                ))}
+                            </select>
+                        </Field>
+
+                        <Field label="الدور القيادي / الصلاحية" required hint="صلاحية النظام الممنوحة للمستخدم">
+                            <select
+                                className={inputClass}
+                                value={form.role}
+                                onChange={(e) => handleRoleChange(e.target.value)}
+                            >
+                                {OFFICIAL_ROLES.map(r => (
+                                    <option key={r.code} value={r.code}>
+                                        {r.label} — {r.hint}
+                                    </option>
+                                ))}
+                            </select>
+                        </Field>
+                    </div>
+
+                    {/* Direct Manager / Hierarchy Reporting */}
+                    <div className="pt-3 border-t border-slate-800/80 space-y-2">
+                        <div className="flex items-center justify-between">
+                            <label className="text-xs font-extrabold text-sky-300 flex items-center gap-1.5">
+                                <i className="fa-solid fa-sitemap text-sky-400"></i>
+                                <span>المسؤول المباشر / التبعية الإدارية (الهيكل الوظيفي)</span>
+                            </label>
+                            {form.role === 'admin' ? (
+                                <span className="text-[11px] text-purple-300 bg-purple-950/60 px-2 py-0.5 rounded border border-purple-500/30 font-bold">
+                                    المستوى الإداري الأعلى (مدير نظام)
+                                </span>
+                            ) : null}
+                        </div>
+
+                        {form.role !== 'admin' && (
+                            <div className="space-y-2">
+                                <select
+                                    className={inputClass}
+                                    value={form.reports_to_id || ''}
+                                    onChange={(e) => setForm(prev => ({ ...prev, reports_to_id: e.target.value || null }))}
+                                >
+                                    <option value="">— بدون مسؤول مباشر (المستوى الإداري الأعلى) —</option>
+                                    {eligibleManagers.length > 0 && (
+                                        <optgroup label="المسؤولون المقترحون وفق الهيكل الوظيفي">
+                                            {eligibleManagers.map(mgr => (
+                                                <option key={mgr.id} value={mgr.id}>
+                                                    {mgr.name} ({mgr.position || ROLES[mgr.role]?.label || mgr.role}) {mgr.department ? `— ${mgr.department}` : ''}
+                                                </option>
+                                            ))}
+                                        </optgroup>
+                                    )}
+                                    {otherManagers.length > 0 && (
+                                        <optgroup label="مسؤولون ومستخدمون آخرون">
+                                            {otherManagers.map(mgr => (
+                                                <option key={mgr.id} value={mgr.id}>
+                                                    {mgr.name} ({mgr.position || ROLES[mgr.role]?.label || mgr.role}) {mgr.department ? `— ${mgr.department}` : ''}
+                                                </option>
+                                            ))}
+                                        </optgroup>
+                                    )}
+                                </select>
+
+                                <p className="text-[11px] text-slate-400 leading-relaxed bg-slate-950/40 p-2.5 rounded-xl border border-slate-800/80 flex items-start gap-2">
+                                    <i className="fa-solid fa-circle-info text-blue-400 mt-0.5"></i>
+                                    <span>
+                                        {(form.role === 'team_member' || form.role === 'user') && 'موظف القسم يرتبط إدارياً برئيس القسم أو مدير الإدارة لتوزيع المهام ومتابعة الإجراءات.'}
+                                        {(form.role === 'team_head' || form.role === 'team_lead') && 'رئيس القسم يرتبط إدارياً بمدير الإدارة لمتابعة سير أعمال القسم واعتماد المخرجات.'}
+                                        {form.role === 'project_manager' && 'مدير المشروع يمكن ربطه اختيارياً تحت هيكل مدير إدارة لمواءمة المشاريع.'}
+                                        {form.role === 'department_manager' && 'مدير الإدارة يرفع تقاريره مباشرة إلى مدير النظام أو المستوى الإداري الأعلى.'}
+                                    </span>
+                                </p>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Permission Package Selector */}
+                    <div className="pt-3 border-t border-slate-800/80 space-y-1.5">
                         <div className="flex items-center justify-between">
                             <label className="text-xs font-extrabold text-slate-300 flex items-center gap-1.5">
                                 <i className="fa-solid fa-layer-group text-purple-400"></i>
@@ -3358,9 +3497,10 @@
             setForm({
                 role: initRole,
                 org: user.org || 'wamy',
-                position: user.position || '',
+                position: user.position || ROLE_TO_POSITION[initRole] || 'موظف قسم',
                 department: user.department || '',
                 team: user.team || '',
+                reports_to_id: user.reports_to_id || null,
                 scope_type: user.scope_type || (initRole === 'project_manager' ? 'مشروع' : 'إدارة'),
                 assigned_project_ids: Array.isArray(user.assigned_project_ids) ? user.assigned_project_ids : [],
                 assigned_department: user.assigned_department || user.department || '',
@@ -3386,6 +3526,7 @@
                     position: form.position,
                     department: form.department || form.assigned_department,
                     team: form.team,
+                    reports_to_id: form.reports_to_id || null,
                     scope_type: form.scope_type,
                     assigned_project_ids: form.assigned_project_ids,
                     assigned_department: form.assigned_department || form.department,
@@ -3422,7 +3563,7 @@
                 <form id="approve-registration-form" onSubmit={handleSubmit} className="space-y-4">
                     <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-200 text-xs flex items-center gap-2">
                         <i className="fa-solid fa-shield-halved text-emerald-400 text-base"></i>
-                        <span>عند اعتماد هذا الحساب، ستصبح حالته «نشط» وسيرتبط فوراً بباقة الصلاحيات والنطاق التشغيلي المحددين أدناه.</span>
+                        <span>عند اعتماد هذا الحساب، ستصبح حالته «نشط» وسيرتبط فوراً بالمنصب وباقة الصلاحيات والنطاق التشغيلي المحددين أدناه.</span>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -3441,9 +3582,6 @@
                             <select className={inputClass} value={form.org} onChange={set('org')}>
                                 {ORG_LIST.map(o => <option key={o.code} value={o.code}>{o.label}</option>)}
                             </select>
-                        </Field>
-                        <Field label="المنصب / المسمى الوظيفي">
-                            <input className={inputClass} value={form.position} onChange={set('position')} placeholder="مثال: منسق إعلامي، مصمم..." />
                         </Field>
                         <Field label="الفريق / الوحدة">
                             <input className={inputClass} value={form.team} onChange={set('team')} placeholder="مثال: فريق الرصد، فريق التصميم..." />
@@ -3889,7 +4027,7 @@
                     </div>
                 </div>
 
-                {/* Sub-Tabs: Users List vs Registration Requests vs Permission Packages */}
+                {/* Sub-Tabs: Users List vs Hierarchy Tree vs Registration Requests vs Permission Packages */}
                 <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-2">
                     <button
                         type="button"
@@ -3905,6 +4043,18 @@
                         <span className="px-2 py-0.5 rounded-full text-xs bg-slate-900/60 border border-slate-700/50">
                             {profiles.length}
                         </span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setActiveSubTab('hierarchy')}
+                        className={`px-4 py-2.5 rounded-xl text-sm font-bold transition flex items-center gap-2 ${
+                            activeSubTab === 'hierarchy'
+                                ? 'bg-purple-600 text-white shadow-md shadow-purple-900/30'
+                                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                        }`}
+                    >
+                        <i className="fa-solid fa-sitemap"></i>
+                        <span>الهيكل الوظيفي والتبعية</span>
                     </button>
                     <button
                         type="button"
@@ -3994,7 +4144,7 @@
                         <div className="p-4 bg-slate-900 border border-blue-500/30 rounded-2xl flex items-start gap-3 text-sm">
                             <i className="fa-solid fa-circle-info text-blue-400 mt-0.5"></i>
                             <p className="text-slate-300 leading-relaxed text-xs">
-                                الصلاحيات والنطاق التشغيلي مطبقان ومحميان في طبقة الخادم بالكامل: لا يمكن للمستخدم الوصول إلا للبيانات والمشاريع المحددة في نطاقه التشغيلي وباقته.
+                                الهيكل الإداري والصلاحيات والنطاق التشغيلي مطبقان ومحميان في طبقة الخادم: تتبع التبعية الإدارية مسؤوليات الموظفين، ولا يمكن للمستخدم الوصول إلا للبيانات والمشاريع المحددة في نطاقه التشغيلي وباقته.
                             </p>
                         </div>
 
@@ -4004,8 +4154,9 @@
                                     <caption className="sr-only">أعضاء الفريق وصلاحياتهم</caption>
                                     <thead>
                                         <tr className="border-b border-slate-800 text-slate-400 bg-slate-950/40 text-xs">
-                                            <th scope="col" className="p-4 font-bold text-start">المستخدم</th>
+                                            <th scope="col" className="p-4 font-bold text-start">المستخدم والمنصب</th>
                                             <th scope="col" className="p-4 font-bold text-start">الدور والنطاق التشغيلي</th>
+                                            <th scope="col" className="p-4 font-bold text-start">المسؤول المباشر</th>
                                             <th scope="col" className="p-4 font-bold text-start">باقة الصلاحيات</th>
                                             <th scope="col" className="p-4 font-bold text-start">الحالة</th>
                                             <th scope="col" className="p-4 font-bold text-center no-print">إجراءات</th>
@@ -4014,7 +4165,7 @@
                                     <tbody className="divide-y divide-slate-800/60">
                                         {filteredUsers.length === 0 ? (
                                             <tr>
-                                                <td colSpan="5" className="p-8 text-center text-slate-500 text-xs">
+                                                <td colSpan="6" className="p-8 text-center text-slate-500 text-xs">
                                                     لا يوجد مستخدمون مطابقون لمعايير البحث
                                                 </td>
                                             </tr>
@@ -4044,7 +4195,7 @@
                                                                     <span className="text-xs text-slate-400 font-mono block truncate" dir="ltr">{u.email}</span>
                                                                     <div className="flex items-center gap-2 mt-0.5">
                                                                         <OrgChip code={u.org} />
-                                                                        {u.position && <span className="text-xs text-slate-500 truncate">{u.position}</span>}
+                                                                        {u.position && <span className="text-xs font-semibold text-slate-300 truncate">{u.position}</span>}
                                                                     </div>
                                                                 </div>
                                                             </div>
@@ -4055,6 +4206,36 @@
                                                                 <i className={`fa-solid ${u.scope_type === 'مشروع' ? 'fa-diagram-project text-blue-400' : 'fa-building text-purple-400'} me-1`}></i>
                                                                 {scopeLabel}
                                                             </span>
+                                                        </td>
+                                                        <td className="p-4 space-y-1">
+                                                            {u.manager_name ? (
+                                                                <div className="space-y-0.5">
+                                                                    <span className="font-bold text-xs text-sky-300 flex items-center gap-1.5">
+                                                                        <i className="fa-solid fa-user-tie text-[11px] text-sky-400"></i>
+                                                                        <span className="truncate">{u.manager_name}</span>
+                                                                    </span>
+                                                                    <span className="block text-[11px] text-slate-400 truncate">
+                                                                        {u.manager_position || ROLES[u.manager_role]?.label || u.manager_role}
+                                                                    </span>
+                                                                </div>
+                                                            ) : (
+                                                                <span className="text-xs text-slate-500">
+                                                                    {u.role === 'admin' ? (
+                                                                        <span className="text-purple-400 font-semibold flex items-center gap-1">
+                                                                            <i className="fa-solid fa-crown text-[10px]"></i>
+                                                                            <span>المستوى الأعلى</span>
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span>— بدون مسؤول —</span>
+                                                                    )}
+                                                                </span>
+                                                            )}
+                                                            {u.direct_reports_count > 0 && (
+                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-950/80 text-sky-300 border border-sky-500/30">
+                                                                    <i className="fa-solid fa-users text-[9px]"></i>
+                                                                    <span>{u.direct_reports_count} تابعين / مرؤوسين</span>
+                                                                </span>
+                                                            )}
                                                         </td>
                                                         <td className="p-4 space-y-1">
                                                             <div className="flex items-center gap-1.5 flex-wrap">
@@ -4120,7 +4301,340 @@
                     </div>
                 )}
 
-                {/* TAB 2: REGISTRATION REQUESTS */}
+                {/* TAB 2: HIERARCHY TREE VIEW */}
+                {activeSubTab === 'hierarchy' && (
+                    <div className="space-y-6">
+                        {/* Summary Badges */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            <div className="p-3.5 bg-purple-950/40 border border-purple-500/30 rounded-2xl flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center font-bold text-lg">
+                                    <i className="fa-solid fa-crown"></i>
+                                </div>
+                                <div>
+                                    <span className="text-xs text-purple-300/80 block">مديرو النظام</span>
+                                    <span className="text-lg font-extrabold text-purple-200">{profiles.filter(u => u.role === 'admin' && u.status === 'active').length}</span>
+                                </div>
+                            </div>
+                            <div className="p-3.5 bg-indigo-950/40 border border-indigo-500/30 rounded-2xl flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center font-bold text-lg">
+                                    <i className="fa-solid fa-briefcase"></i>
+                                </div>
+                                <div>
+                                    <span className="text-xs text-indigo-300/80 block">مديرو الإدارات</span>
+                                    <span className="text-lg font-extrabold text-indigo-200">{profiles.filter(u => u.role === 'department_manager' && u.status === 'active').length}</span>
+                                </div>
+                            </div>
+                            <div className="p-3.5 bg-sky-950/40 border border-sky-500/30 rounded-2xl flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-sky-500/20 text-sky-400 flex items-center justify-center font-bold text-lg">
+                                    <i className="fa-solid fa-user-gear"></i>
+                                </div>
+                                <div>
+                                    <span className="text-xs text-sky-300/80 block">رؤساء أقسام ومشاريع</span>
+                                    <span className="text-lg font-extrabold text-sky-200">{profiles.filter(u => (u.role === 'team_head' || u.role === 'project_manager') && u.status === 'active').length}</span>
+                                </div>
+                            </div>
+                            <div className="p-3.5 bg-slate-900 border border-slate-700/50 rounded-2xl flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-slate-800 text-slate-300 flex items-center justify-center font-bold text-lg">
+                                    <i className="fa-solid fa-users"></i>
+                                </div>
+                                <div>
+                                    <span className="text-xs text-slate-400 block">موظفو الأقسام</span>
+                                    <span className="text-lg font-extrabold text-slate-200">{profiles.filter(u => (u.role === 'team_member' || u.role === 'user') && u.status === 'active').length}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Visual Tree Guidelines Banner */}
+                        <div className="p-4 bg-slate-900 border border-purple-500/30 rounded-2xl flex items-start justify-between gap-3 text-sm">
+                            <div className="flex items-start gap-3">
+                                <i className="fa-solid fa-sitemap text-purple-400 text-lg mt-0.5"></i>
+                                <div className="space-y-1">
+                                    <h4 className="font-bold text-white text-xs">الهيكل التنظيمي والتبعية الإدارية المعتمدة</h4>
+                                    <p className="text-slate-300 text-xs leading-relaxed">
+                                        يمثل هذا الهيكل شجرة التبعية الإدارية: <strong>مدير النظام</strong> &larr; <strong>مدير إدارة</strong> &larr; <strong>رئيس قسم / مدير مشروع</strong> &larr; <strong>موظف قسم</strong>. لتعديل التبعية أو ربط موظف بمسؤول مباشر، اضغط زر التعديل بجانب اسم المستخدم.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Hierarchical Cards View */}
+                        <div className="space-y-6">
+                            {/* LEVEL 1: System Admins */}
+                            <div className="bg-slate-900/90 border border-purple-500/40 rounded-2xl p-4 space-y-3 shadow-lg shadow-purple-950/20">
+                                <div className="flex items-center justify-between">
+                                    <h4 className="text-xs font-extrabold text-purple-300 flex items-center gap-2">
+                                        <i className="fa-solid fa-crown text-purple-400"></i>
+                                        <span>المستوى الإداري الأول: إدارة النظام العليا (GLOBAL Access)</span>
+                                    </h4>
+                                    <span className="text-[11px] text-purple-400 font-mono">
+                                        {profiles.filter(u => u.role === 'admin').length} مدير نظام
+                                    </span>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                    {profiles.filter(u => u.role === 'admin').map(adminUser => (
+                                        <div key={adminUser.id} className="p-3.5 bg-slate-950/60 border border-purple-500/30 rounded-xl flex items-center justify-between gap-3 hover:border-purple-500 transition">
+                                            <div className="flex items-center gap-3 min-w-0">
+                                                <Avatar name={adminUser.name} size="w-10 h-10 text-xs" />
+                                                <div className="min-w-0">
+                                                    <span className="font-bold text-white text-xs block truncate">{adminUser.name}</span>
+                                                    <span className="text-[11px] text-slate-400 font-mono block truncate" dir="ltr">{adminUser.email}</span>
+                                                    <div className="flex items-center gap-1.5 mt-1">
+                                                        <span className="px-2 py-0.2 rounded text-[10px] bg-purple-950 text-purple-300 border border-purple-500/30 font-bold">
+                                                            {adminUser.position || 'مدير النظام'}
+                                                        </span>
+                                                        <OrgChip code={adminUser.org} />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            {mayEdit && (
+                                                <button onClick={() => onEdit(adminUser)} className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs" title="تعديل المستخدم">
+                                                    <i className="fa-solid fa-pen-to-square"></i>
+                                                </button>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* LEVEL 2 & BELOW: Department Managers & Subordinates Tree */}
+                            <div className="space-y-4">
+                                <h4 className="text-xs font-extrabold text-blue-300 flex items-center gap-2">
+                                    <i className="fa-solid fa-building-user text-blue-400"></i>
+                                    <span>الإدارات والفرق التشغيلية (التبعية الإدارية المباشرة)</span>
+                                </h4>
+
+                                {profiles.filter(u => u.role === 'department_manager').length === 0 ? (
+                                    <div className="p-6 bg-slate-900 border border-slate-800 rounded-2xl text-center text-xs text-slate-500">
+                                        لا يوجد مديرو إدارات مسجلون حالياً. يمكنك ترقية أو تعيين مستخدم كـ «مدير إدارة» من قائمة المستخدمين.
+                                    </div>
+                                ) : (
+                                    profiles.filter(u => u.role === 'department_manager').map(deptMgr => {
+                                        // Find direct subordinates of this department manager
+                                        const directReports = profiles.filter(u => u.reports_to_id === deptMgr.id);
+                                        const teamHeads = directReports.filter(u => u.role === 'team_head' || u.role === 'team_lead');
+                                        const projectMgrs = directReports.filter(u => u.role === 'project_manager');
+                                        const directMembers = directReports.filter(u => u.role === 'team_member' || u.role === 'user');
+
+                                        return (
+                                            <div key={deptMgr.id} className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-4 shadow-md">
+                                                {/* Dept Manager Card Header */}
+                                                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 bg-slate-950/80 border border-indigo-500/30 rounded-xl">
+                                                    <div className="flex items-center gap-3 min-w-0">
+                                                        <div className="w-11 h-11 rounded-xl bg-indigo-950 border border-indigo-500/40 flex items-center justify-center text-indigo-300 font-bold text-sm shrink-0">
+                                                            <i className="fa-solid fa-user-tie"></i>
+                                                        </div>
+                                                        <div className="min-w-0">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="font-bold text-white text-sm block truncate">{deptMgr.name}</span>
+                                                                <span className="px-2 py-0.5 rounded text-[10px] bg-indigo-950 text-indigo-300 border border-indigo-500/30 font-bold">
+                                                                    {deptMgr.position || 'مدير إدارة'}
+                                                                </span>
+                                                                <OrgChip code={deptMgr.org} />
+                                                            </div>
+                                                            <div className="flex items-center gap-2 text-xs text-slate-400 mt-0.5">
+                                                                <span className="font-mono" dir="ltr">{deptMgr.email}</span>
+                                                                <span>•</span>
+                                                                <span className="text-indigo-300 font-bold">
+                                                                    <i className="fa-solid fa-building text-indigo-400 me-1"></i>
+                                                                    {deptMgr.assigned_department || deptMgr.department || 'إدارة عامة'}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-2 self-end sm:self-center">
+                                                        <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-950/60 text-indigo-300 border border-indigo-500/30">
+                                                            <i className="fa-solid fa-users text-[10px] me-1"></i>
+                                                            {directReports.length} مرؤوسين مباشرين
+                                                        </span>
+                                                        {mayEdit && (
+                                                            <button onClick={() => onEdit(deptMgr)} className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs" title="تعديل المستخدم">
+                                                                <i className="fa-solid fa-pen-to-square"></i>
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                {/* Subordinates Groups */}
+                                                <div className="ps-4 sm:ps-6 border-s-2 border-indigo-500/20 space-y-4">
+                                                    {/* Section A: Team Heads & Their Team Members */}
+                                                    {teamHeads.length > 0 && (
+                                                        <div className="space-y-3">
+                                                            <h5 className="text-[11px] font-extrabold text-sky-300 flex items-center gap-1.5">
+                                                                <i className="fa-solid fa-sitemap text-sky-400"></i>
+                                                                <span>الأقسام ورؤساء الأقسام التابعين:</span>
+                                                            </h5>
+                                                            <div className="grid grid-cols-1 gap-3">
+                                                                {teamHeads.map(head => {
+                                                                    const headMembers = profiles.filter(u => u.reports_to_id === head.id);
+                                                                    return (
+                                                                        <div key={head.id} className="p-3 bg-slate-950/50 border border-sky-500/20 rounded-xl space-y-3">
+                                                                            <div className="flex items-center justify-between gap-3">
+                                                                                <div className="flex items-center gap-2.5 min-w-0">
+                                                                                    <Avatar name={head.name} size="w-8 h-8 text-[10px]" />
+                                                                                    <div className="min-w-0">
+                                                                                        <div className="flex items-center gap-2">
+                                                                                            <span className="font-bold text-white text-xs block truncate">{head.name}</span>
+                                                                                            <span className="px-2 py-0.2 rounded text-[10px] bg-sky-950 text-sky-300 border border-sky-500/30 font-bold">
+                                                                                                {head.position || 'رئيس قسم'}
+                                                                                            </span>
+                                                                                        </div>
+                                                                                        <span className="text-[11px] text-slate-400 font-mono block truncate" dir="ltr">{head.email}</span>
+                                                                                    </div>
+                                                                                </div>
+                                                                                <div className="flex items-center gap-2">
+                                                                                    <span className="text-[10px] text-sky-300 font-bold bg-sky-950/80 px-2 py-0.5 rounded border border-sky-500/30">
+                                                                                        {headMembers.length} موظفي قسم
+                                                                                    </span>
+                                                                                    {mayEdit && (
+                                                                                        <button onClick={() => onEdit(head)} className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs" title="تعديل">
+                                                                                            <i className="fa-solid fa-pen-to-square"></i>
+                                                                                        </button>
+                                                                                    )}
+                                                                                </div>
+                                                                            </div>
+
+                                                                            {/* Direct Team Members under this Head */}
+                                                                            {headMembers.length > 0 && (
+                                                                                <div className="ps-4 border-s-2 border-sky-500/30 pt-1 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                                                                                    {headMembers.map(m => (
+                                                                                        <div key={m.id} className="p-2 bg-slate-900/80 border border-slate-800 rounded-lg flex items-center justify-between gap-2">
+                                                                                            <div className="flex items-center gap-2 min-w-0">
+                                                                                                <Avatar name={m.name} size="w-6 h-6 text-[9px]" />
+                                                                                                <div className="min-w-0">
+                                                                                                    <span className="font-bold text-white text-[11px] block truncate">{m.name}</span>
+                                                                                                    <span className="text-[10px] text-slate-400 block truncate">{m.position || 'موظف قسم'}</span>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                            {mayEdit && (
+                                                                                                <button onClick={() => onEdit(m)} className="p-1 text-slate-400 hover:text-white" title="تعديل">
+                                                                                                    <i className="fa-solid fa-pen text-[10px]"></i>
+                                                                                                </button>
+                                                                                            )}
+                                                                                        </div>
+                                                                                    ))}
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Section B: Project Managers under this Dept Manager */}
+                                                    {projectMgrs.length > 0 && (
+                                                        <div className="space-y-2">
+                                                            <h5 className="text-[11px] font-extrabold text-cyan-300 flex items-center gap-1.5">
+                                                                <i className="fa-solid fa-diagram-project text-cyan-400"></i>
+                                                                <span>مديرو المشاريع التابعين للإدارة:</span>
+                                                            </h5>
+                                                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                                                                {projectMgrs.map(pm => (
+                                                                    <div key={pm.id} className="p-2.5 bg-slate-950/50 border border-cyan-500/20 rounded-xl flex items-center justify-between gap-2">
+                                                                        <div className="flex items-center gap-2.5 min-w-0">
+                                                                            <Avatar name={pm.name} size="w-8 h-8 text-[10px]" />
+                                                                            <div className="min-w-0">
+                                                                                <div className="flex items-center gap-1.5">
+                                                                                    <span className="font-bold text-white text-xs block truncate">{pm.name}</span>
+                                                                                    <span className="px-1.5 py-0.2 rounded text-[9px] bg-cyan-950 text-cyan-300 border border-cyan-500/30 font-bold">
+                                                                                        {pm.position || 'مدير مشروع'}
+                                                                                    </span>
+                                                                                </div>
+                                                                                <span className="text-[10px] text-slate-400 block truncate">{(pm.assigned_project_ids || []).length} مشاريع معينة</span>
+                                                                            </div>
+                                                                        </div>
+                                                                        {mayEdit && (
+                                                                            <button onClick={() => onEdit(pm)} className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs" title="تعديل">
+                                                                                <i className="fa-solid fa-pen-to-square"></i>
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Section C: Direct Department Members (Reporting directly to Dept Manager) */}
+                                                    {directMembers.length > 0 && (
+                                                        <div className="space-y-2">
+                                                            <h5 className="text-[11px] font-extrabold text-slate-300 flex items-center gap-1.5">
+                                                                <i className="fa-solid fa-users-line text-slate-400"></i>
+                                                                <span>موظفو القسم التابعون مباشرة لمدير الإدارة:</span>
+                                                            </h5>
+                                                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                                                                {directMembers.map(m => (
+                                                                    <div key={m.id} className="p-2.5 bg-slate-950/40 border border-slate-800 rounded-xl flex items-center justify-between gap-2">
+                                                                        <div className="flex items-center gap-2 min-w-0">
+                                                                            <Avatar name={m.name} size="w-7 h-7 text-[9px]" />
+                                                                            <div className="min-w-0">
+                                                                                <span className="font-bold text-white text-xs block truncate">{m.name}</span>
+                                                                                <span className="text-[10px] text-slate-400 block truncate">{m.position || 'موظف قسم'}</span>
+                                                                            </div>
+                                                                        </div>
+                                                                        {mayEdit && (
+                                                                            <button onClick={() => onEdit(m)} className="p-1 text-slate-400 hover:text-white" title="تعديل">
+                                                                                <i className="fa-solid fa-pen text-[10px]"></i>
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {directReports.length === 0 && (
+                                                        <p className="text-xs text-slate-500 py-1">
+                                                            لا يوجد موظفون أو رؤساء أقسام مرتبطون بهذا المدير حالياً.
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })
+                                )}
+                            </div>
+
+                            {/* Unassigned / Direct Level Users (Not reporting to any department manager and not admin) */}
+                            {(() => {
+                                const unassignedUsers = profiles.filter(u => u.role !== 'admin' && u.role !== 'department_manager' && !u.reports_to_id);
+                                if (unassignedUsers.length === 0) return null;
+                                return (
+                                    <div className="bg-slate-900/80 border border-amber-500/30 rounded-2xl p-4 space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <h4 className="text-xs font-extrabold text-amber-300 flex items-center gap-2">
+                                                <i className="fa-solid fa-user-tag text-amber-400"></i>
+                                                <span>مستخدمون بدون مسؤول مباشر محدد ({unassignedUsers.length})</span>
+                                            </h4>
+                                            <span className="text-[11px] text-amber-400/80">يمكن ربطهم بمسؤولهم المباشر بالضغط على تعديل</span>
+                                        </div>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                                            {unassignedUsers.map(u => (
+                                                <div key={u.id} className="p-3 bg-slate-950/60 border border-slate-800 rounded-xl flex items-center justify-between gap-3 hover:border-slate-700 transition">
+                                                    <div className="flex items-center gap-2.5 min-w-0">
+                                                        <Avatar name={u.name} size="w-8 h-8 text-[10px]" />
+                                                        <div className="min-w-0">
+                                                            <span className="font-bold text-white text-xs block truncate">{u.name}</span>
+                                                            <span className="text-[10px] text-slate-400 block truncate">{u.position || ROLES[u.role]?.label || u.role}</span>
+                                                        </div>
+                                                    </div>
+                                                    {mayEdit && (
+                                                        <button onClick={() => onEdit(u)} className="px-2.5 py-1 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 rounded-lg text-xs font-bold flex items-center gap-1">
+                                                            <i className="fa-solid fa-link text-[10px]"></i>
+                                                            <span>ربط بمسؤول</span>
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+                        </div>
+                    </div>
+                )}
+
+                {/* TAB 3: REGISTRATION REQUESTS */}
                 {activeSubTab === 'requests' && (
                     <div className="space-y-4">
                         {/* Quick Stats Badges */}
@@ -11151,8 +11665,8 @@
 
     function UserModal({ open, initial, data, onClose, onSubmit, busy, isSelf }) {
         const [form, setForm] = useState({
-            name: '', position: '', department: '', team: '', data_scope: 'my_data',
-            org: 'wamy', role: 'team_member', status: 'pending',
+            name: '', position: 'موظف قسم', department: '', team: '', data_scope: 'my_data',
+            org: 'wamy', role: 'team_member', status: 'pending', reports_to_id: null,
             scope_type: 'إدارة', assigned_project_ids: [], assigned_department: STANDARD_DEPARTMENTS[0] || '',
             package_id: null, direct_permissions_allow: {}, direct_permissions_deny: {},
             permissions: EMPTY_PERMISSIONS
@@ -11171,9 +11685,10 @@
 
             setForm({
                 name: initial.name || '',
-                position: initial.position || '',
+                position: initial.position || ROLE_TO_POSITION[userRole] || 'موظف قسم',
                 department: initial.department || '',
                 team: initial.team || '',
+                reports_to_id: initial.reports_to_id || null,
                 data_scope: initial.data_scope || 'my_data',
                 org: initial.org || 'wamy',
                 role: userRole,
@@ -11207,7 +11722,7 @@
                     {initial && initial.status === 'pending' && (
                         <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-200 text-xs flex items-center gap-2">
                             <i className="fa-solid fa-hourglass-half text-amber-400"></i>
-                            <span>هذا المستخدم مسجل ذاتياً وبانتظار الاعتماد. لتفعيله، حدد النطاق والدور والباقة المطلوبة وغيّر حالة الحساب إلى «نشط» ثم اضغط حفظ.</span>
+                            <span>هذا المستخدم مسجل ذاتياً وبانتظار الاعتماد. لتفعيله، حدد المنصب والنطاق والدور والباقة المطلوبة وغيّر حالة الحساب إلى «نشط» ثم اضغط حفظ.</span>
                         </div>
                     )}
                     {isSelf && (
@@ -11224,9 +11739,6 @@
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                             <Field label="الاسم الكامل" required>
                                 <input className={inputClass} value={form.name} onChange={set('name')} required />
-                            </Field>
-                            <Field label="المنصب">
-                                <input className={inputClass} value={form.position} onChange={set('position')} placeholder="مثال: مسؤول الإنتاج الرقمي" />
                             </Field>
                             <Field label="الفريق الداخلي">
                                 <input className={inputClass} value={form.team} onChange={set('team')} placeholder="مثال: فريق التصميم" />
@@ -11263,9 +11775,10 @@
         const defaults = {
             name: '',
             email: '',
-            position: '',
+            position: 'موظف قسم',
             department: '',
             team: '',
+            reports_to_id: null,
             data_scope: 'my_data',
             org: 'wamy',
             role: defaultRole,
@@ -11296,9 +11809,10 @@
                 setForm({
                     name: initial.name || '',
                     email: initial.email || '',
-                    position: initial.position || '',
+                    position: initial.position || ROLE_TO_POSITION[userRole] || 'موظف قسم',
                     department: initial.department || '',
                     team: initial.team || '',
+                    reports_to_id: initial.reports_to_id || null,
                     data_scope: initial.data_scope || 'my_data',
                     org: initial.org || 'wamy',
                     role: userRole,
@@ -11360,7 +11874,7 @@
         return (
             <Modal open={open} onClose={onClose} size="xl"
                    title={initial ? 'إعادة إصدار دعوة المستخدم' : 'إضافة مستخدم جديد ودعوته للنظام'}
-                   subtitle="حدد النطاق التشغيلي، الدور، وباقة الصلاحيات المعتمدة قبل إرسال رابط التسجيل."
+                   subtitle="حدد النطاق التشغيلي، المنصب، الدور، وباقة الصلاحيات المعتمدة قبل إرسال رابط التسجيل."
                    footer={
                        <React.Fragment>
                            <button type="button" onClick={onClose} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-sm font-bold">إغلاق</button>
@@ -11385,9 +11899,6 @@
                                 </Field>
                                 <Field label="البريد الإلكتروني" required hint={initial ? 'لتغيير البريد استخدم شاشة تعديل المستخدم أولًا.' : null}>
                                     <input type="email" dir="ltr" readOnly={!!initial} className={cx(inputClass, 'font-mono', initial && 'opacity-70')} value={form.email} onChange={set('email')} required maxLength="320" placeholder="name@domain.org" />
-                                </Field>
-                                <Field label="المنصب">
-                                    <input className={inputClass} value={form.position} onChange={set('position')} placeholder="المسمى الوظيفي" />
                                 </Field>
                                 <Field label="الفريق الداخلي">
                                     <input className={inputClass} value={form.team} onChange={set('team')} placeholder="اسم الفريق الداخلي" />
